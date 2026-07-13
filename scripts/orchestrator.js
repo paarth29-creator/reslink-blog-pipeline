@@ -21,7 +21,6 @@ import {
   fixNumericRangeSpacing,
   removeYouMayAlsoLikeSection,
   restrictSourcesToVerified,
-  cleanYouMayAlsoLikeSection,
 } from './context.js';
 
 config();
