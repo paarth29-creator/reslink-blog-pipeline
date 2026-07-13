@@ -660,6 +660,21 @@ export async function uploadImageToSanity(sanityClient, buffer, filename) {
   return asset._id;
 }
 
+// ---- 7a2. Universal promo creative, uploaded once, reused forever -------
+//
+// The same image on every post, linking to /demo/, not generated or
+// searched per post. Upload it once via Sanity Studio's media library
+// with this exact filename, and every future run finds and reuses it
+// automatically, no re-uploading, no duplicate assets piling up.
+
+// Confirmed real, already sitting in the Sanity media library, derived
+// from the actual CDN URL: project cw3fr4fd matches, and 8000x4500
+// matches the promo banner spec exactly. No lookup needed, no upload
+// step needed, this ID is permanent as long as the asset isn't deleted
+// from Sanity's media library.
+export const PROMO_IMAGE_ASSET_ID = "image-4978883d208c7a22ca5c7cf812912b2eb79fa955-8000x4500-png";
+export const PROMO_IMAGE_LINK = "https://www.reslink.org/demo/";
+
 // ---- 7b. Real stock photo search, now the primary path -------------------
 //
 // Unsplash tried first, then Pexels if Unsplash has nothing good. Both

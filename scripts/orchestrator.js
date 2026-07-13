@@ -37,6 +37,8 @@ import {
   restrictSourcesToVerified,
   extractHeroImagePrompt,
   getHeroImage,
+  PROMO_IMAGE_ASSET_ID,
+  PROMO_IMAGE_LINK,
   uploadImageToSanity,
 } from "./context.js";
 
@@ -563,6 +565,33 @@ Every addition must be specific to this exact topic, not generic padding. Output
       text: tldrText,
     };
     console.log("Converted TL;DR paragraph into a real callout block.");
+  }
+
+  // Universal promo creative, same image and link on every post, real,
+  // verified asset ID, no lookup needed. Finds the 2nd or 3rd real body
+  // paragraph (TL;DR callout and headings don't count) and inserts right
+  // after it. Wrapped defensively anyway, this should never be the
+  // reason a post fails to publish.
+  try {
+    const paragraphIndices = contentBlocks
+      .map((b, i) => (b._type === "block" && b.style === "normal" ? i : -1))
+      .filter((i) => i !== -1);
+
+    if (paragraphIndices.length > 0) {
+      const target = Math.min(3, paragraphIndices.length) - 1; // 3rd paragraph, or the last available one if fewer exist
+      const insertAfter = paragraphIndices[target];
+      contentBlocks.splice(insertAfter + 1, 0, {
+        _type: "image",
+        _key: randomKey(),
+        asset: { _type: "reference", _ref: PROMO_IMAGE_ASSET_ID },
+        link: PROMO_IMAGE_LINK, // NOTE: unverified field name, see delivery note
+      });
+      console.log(`Inserted the promo creative after paragraph ${target + 1}.`);
+    } else {
+      console.log("No body paragraphs found to insert the promo creative after, skipping it this run.");
+    }
+  } catch (err) {
+    console.log(`Promo creative skipped (${err.message}).`);
   }
 
   const doc = {
