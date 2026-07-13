@@ -14,7 +14,7 @@ const MARKETS = [
   { name: 'Australia', weight: 5 },
 ];
 
-export function pickTargetMarket() {
+function pickTargetMarket() {
   const totalWeight = MARKETS.reduce((sum, m) => sum + m.weight, 0);
   let rand = Math.random() * totalWeight;
   for (const market of MARKETS) {
@@ -26,7 +26,7 @@ export function pickTargetMarket() {
 
 // --- Fetch recent posts from Sanity ---
 
-export async function fetchRecentPosts(sanity, days = 5) {
+async function fetchRecentPosts(sanity, days = 5) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
   const cutoffStr = cutoff.toISOString();
@@ -37,7 +37,7 @@ export async function fetchRecentPosts(sanity, days = 5) {
 
 // --- Google News RSS search ---
 
-export async function gatherRSSSearchContext(market) {
+async function gatherRSSSearchContext(market) {
   const query = `solar+energy+${encodeURIComponent(market)}+policy`;
   const url = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
   try {
@@ -68,7 +68,7 @@ export async function gatherRSSSearchContext(market) {
 
 // --- Jina Reader ---
 
-export async function jinaFetchMany(urls) {
+async function jinaFetchMany(urls) {
   const results = [];
   for (const url of urls) {
     try {
@@ -88,7 +88,7 @@ export async function jinaFetchMany(urls) {
 
 // --- Formatting helpers ---
 
-export function formatSearchResultsForPrompt(results) {
+function formatSearchResultsForPrompt(results) {
   let output = '';
   for (const group of results) {
     output += `\n=== ${group.label} ===\n`;
@@ -99,7 +99,7 @@ export function formatSearchResultsForPrompt(results) {
   return output || 'No search results available.';
 }
 
-export function formatExtractedContentForPrompt(extracted) {
+function formatExtractedContentForPrompt(extracted) {
   let output = '';
   for (const item of extracted) {
     if (!item.success) continue;
@@ -110,7 +110,7 @@ export function formatExtractedContentForPrompt(extracted) {
 
 // --- Meta panel parsing ---
 
-export function parseMetaPanel(markdown) {
+function parseMetaPanel(markdown) {
   const meta = { seoTitle: '', seoDescription: '', tags: [] };
   const match = markdown.match(/<!--\s*Meta Panel:\s*([\s\S]*?)-->/);
   if (!match) return meta;
@@ -131,7 +131,7 @@ export function parseMetaPanel(markdown) {
 
 // --- Excerpt extraction ---
 
-export function extractExcerpt(markdown, maxLen = 200) {
+function extractExcerpt(markdown, maxLen = 200) {
   const tldrMatch = markdown.match(/TL;DR:\s*([^\n]+)/);
   if (tldrMatch) return tldrMatch[1].trim().substring(0, maxLen);
   const firstPara = markdown.match(/^#\s+.*\n\n([^\n]+)/m);
@@ -141,7 +141,7 @@ export function extractExcerpt(markdown, maxLen = 200) {
 
 // --- Slugify ---
 
-export function slugify(text) {
+function slugify(text) {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -151,14 +151,14 @@ export function slugify(text) {
 
 // --- Extract title ---
 
-export function extractTitle(markdown) {
+function extractTitle(markdown) {
   const match = markdown.match(/^#\s+(.+)/m);
   return match ? match[1].trim() : '';
 }
 
 // --- Image ---
 
-export async function getHeroImage(prompt, sanity) {
+async function getHeroImage(prompt, sanity) {
   // Try Unsplash first
   const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
   if (unsplashKey) {
@@ -210,12 +210,12 @@ export async function getHeroImage(prompt, sanity) {
 
 // --- Cleanup functions ---
 
-export function stripInlineSourceCitations(markdown) {
+function stripInlineSourceCitations(markdown) {
   return markdown.replace(/\(Source:?\s*[^)]*\)/gi, '')
                  .replace(/\([^)]*https?:\/\/[^\s)]+[^)]*\)/g, '');
 }
 
-export function delinkUnverifiedReslinkLinks(markdown, verifiedPosts) {
+function delinkUnverifiedReslinkLinks(markdown, verifiedPosts) {
   const validSlugs = verifiedPosts.map(p => p.slug?.current).filter(Boolean);
   const validUrls = validSlugs.map(s => `reslink.org/${s}`);
   return markdown.replace(/\[([^\]]*)\]\((https?:\/\/[^)]*reslink\.org[^)]*)\)/g, (match, text, url) => {
@@ -224,19 +224,19 @@ export function delinkUnverifiedReslinkLinks(markdown, verifiedPosts) {
   });
 }
 
-export function fixSquishedDates(markdown) {
+function fixSquishedDates(markdown) {
   return markdown.replace(/\b([A-Z][a-z]+)(\d{1,2})(\d{4})\b/g, '$1 $2, $3');
 }
 
-export function fixNumericRangeSpacing(markdown) {
+function fixNumericRangeSpacing(markdown) {
   return markdown.replace(/(\d+)\s*[-–]\s*(\d+)\s*([a-z]+)/gi, '$1–$2 $3');
 }
 
-export function removeYouMayAlsoLikeSection(markdown) {
+function removeYouMayAlsoLikeSection(markdown) {
   return markdown.replace(/\n?#+\s*You May Also Like\s*.*?(\n#+|\n\n|$)/is, '');
 }
 
-export function restrictSourcesToVerified(markdown, verifiedUrls) {
+function restrictSourcesToVerified(markdown, verifiedUrls) {
   const lines = markdown.split('\n');
   let inSources = false;
   const filtered = [];
@@ -263,7 +263,7 @@ export function restrictSourcesToVerified(markdown, verifiedUrls) {
   return filtered.join('\n');
 }
 
-// --- Exports ---
+// --- Exports (only once) ---
 
 export {
   pickTargetMarket,
