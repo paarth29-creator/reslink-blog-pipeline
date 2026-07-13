@@ -161,8 +161,11 @@ async function callOpenRouterAdaptive(systemPrompt, userPrompt, model) {
 // not a code fix. When the server tells us exactly how long via
 // retry_after_seconds, trust that over our own guessed schedule.
 async function callOpenRouterWithRetries(systemPrompt, userPrompt, model) {
-  const MAX_ATTEMPTS = 3;
-  const DEFAULT_BACKOFF_MS = [10_000, 20_000];
+  // Widened from 3 to 5 attempts. This runs unattended now, nobody's
+  // watching a terminal waiting for it, so there's real value in trying
+  // harder before giving up, not just faster.
+  const MAX_ATTEMPTS = 5;
+  const DEFAULT_BACKOFF_MS = [10_000, 20_000, 30_000, 45_000];
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       return await callOpenRouterAdaptive(systemPrompt, userPrompt, model);
