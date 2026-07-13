@@ -1,286 +1,818 @@
-import { createClient } from '@sanity/client';
-import { parseISO, differenceInDays } from 'date-fns';
+// scripts/context.js
+//
+// Your topic-scanner prompt was written assuming three things exist:
+//   1. A TARGET_MARKET to focus on
+//   2. A list of recently published titles (for the 5-day topic lock)
+//   3. The ability to run web searches
+//
+// The free model has none of these on its own. This file gathers all
+// three ahead of time so they can be handed to the model as plain text,
+// instead of the model trying (and failing) to fetch them itself.
 
-// --- Market selection ---
+// ---- 1. Market rotation --------------------------------------------------
 
-const MARKETS = [
-  { name: 'India', weight: 40 },
-  { name: 'United States', weight: 25 },
-  { name: 'EU', weight: 10 },
-  { name: 'UK', weight: 5 },
-  { name: 'Philippines', weight: 5 },
-  { name: 'Thailand', weight: 5 },
-  { name: 'South Africa', weight: 5 },
-  { name: 'Australia', weight: 5 },
+const MARKET_WEIGHTS = [
+  { market: "India", weight: 40 },
+  { market: "United States", weight: 25 },
+  { market: "European Union", weight: 10 },
+  { market: "UK", weight: 5 },
+  { market: "Philippines", weight: 5 },
+  { market: "Thailand", weight: 5 },
+  { market: "South Africa", weight: 5 },
+  { market: "Australia", weight: 5 },
 ];
+// 40% India, 25% US, 10% EU, 5% UK, remaining 20% split evenly across the
+// four other markets (5% each). "European Union" replaces the old
+// standalone "Germany" entry, broader regional coverage instead of one
+// country. If you want Germany specifically back as its own slice, that's
+// a one-line change here, nothing else depends on this list's shape.
 
-function pickTargetMarket() {
-  const totalWeight = MARKETS.reduce((sum, m) => sum + m.weight, 0);
-  let rand = Math.random() * totalWeight;
-  for (const market of MARKETS) {
-    rand -= market.weight;
-    if (rand <= 0) return market.name;
+export function pickTargetMarket() {
+  const total = MARKET_WEIGHTS.reduce((sum, m) => sum + m.weight, 0);
+  let roll = Math.random() * total;
+  for (const m of MARKET_WEIGHTS) {
+    if (roll < m.weight) return m.market;
+    roll -= m.weight;
   }
-  return MARKETS[0].name;
+  return MARKET_WEIGHTS[0].market;
 }
 
-// --- Fetch recent posts from Sanity ---
+// ---- 2. Recently published titles, for the 5-day topic lock -------------
 
-async function fetchRecentPosts(sanity, days = 5) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutoffStr = cutoff.toISOString();
-  const query = `*[_type == "blogPost" && publishedAt >= $cutoff] | order(publishedAt desc) { title, slug }`;
-  const result = await sanity.fetch(query, { cutoff: cutoffStr });
-  return result || [];
-}
-
-// --- Google News RSS search ---
-
-async function gatherRSSSearchContext(market) {
-  const query = `solar+energy+${encodeURIComponent(market)}+policy`;
-  const url = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
+export async function fetchPublishedTitles(sanityClient, documentType) {
+  const fiveDaysAgo = new Date(
+    Date.now() - 5 * 24 * 60 * 60 * 1000
+  ).toISOString();
+  const query = `*[_type == $type && defined(publishedAt) && publishedAt > $since]{title}`;
   try {
-    const res = await fetch(url);
-    const text = await res.text();
-    const items = [];
-    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-    let match;
-    while ((match = itemRegex.exec(text)) !== null) {
-      const item = match[1];
-      const titleMatch = item.match(/<title>([^<]*)<\/title>/);
-      const linkMatch = item.match(/<link>([^<]*)<\/link>/);
-      const descMatch = item.match(/<description>([^<]*)<\/description>/);
-      if (titleMatch && linkMatch) {
-        items.push({
-          title: titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim(),
-          url: linkMatch[1],
-          content: descMatch ? descMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '',
-        });
-      }
-    }
-    return [{ label: 'Google News RSS', results: items.slice(0, 10) }];
-  } catch (e) {
-    console.error('RSS fetch error:', e.message);
-    return [{ label: 'Google News RSS', results: [] }];
+    const docs = await sanityClient.fetch(query, {
+      type: documentType,
+      since: fiveDaysAgo,
+    });
+    return docs.map((d) => d.title).filter(Boolean);
+  } catch (err) {
+    console.log(
+      `Warning: couldn't fetch published titles from Sanity (${err.message}). Proceeding with an empty list, the topic lock won't have anything to check against this run.`
+    );
+    return [];
   }
 }
 
-// --- Jina Reader ---
+// ---- 3. Pre-fetched web search, via Tavily's free tier -------------------
 
-async function jinaFetchMany(urls) {
-  const results = [];
-  for (const url of urls) {
-    try {
-      const res = await fetch(`https://r.jina.ai/${url}`, {
-        headers: { 'Accept': 'application/json' }
-      });
-      const data = await res.json();
-      const content = data.data?.content || data.content || '';
-      const resolvedUrl = data.data?.url || data.url || url;
-      results.push({ success: true, url: resolvedUrl, content, originalUrl: url });
-    } catch (e) {
-      results.push({ success: false, url, error: e.message, originalUrl: url });
-    }
+export async function tavilySearch(query, maxResults = 5) {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "TAVILY_API_KEY is not set. Get a free key at tavily.com (no card required) and add it to .env."
+    );
   }
-  return results;
-}
-
-// --- Formatting helpers ---
-
-function formatSearchResultsForPrompt(results) {
-  let output = '';
-  for (const group of results) {
-    output += `\n=== ${group.label} ===\n`;
-    for (const item of group.results) {
-      output += `- ${item.title}\n  URL: ${item.url}\n  Snippet: ${item.content || 'N/A'}\n`;
-    }
-  }
-  return output || 'No search results available.';
-}
-
-function formatExtractedContentForPrompt(extracted) {
-  let output = '';
-  for (const item of extracted) {
-    if (!item.success) continue;
-    output += `\n=== Source: ${item.url} ===\n${item.content.substring(0, 8000)}\n`;
-  }
-  return output || 'No source content available.';
-}
-
-// --- Meta panel parsing ---
-
-function parseMetaPanel(markdown) {
-  const meta = { seoTitle: '', seoDescription: '', tags: [] };
-  const match = markdown.match(/<!--\s*Meta Panel:\s*([\s\S]*?)-->/);
-  if (!match) return meta;
-  const lines = match[1].split(';').map(s => s.trim());
-  for (const line of lines) {
-    if (line.startsWith('Meta Title:')) meta.seoTitle = line.replace('Meta Title:', '').trim();
-    if (line.startsWith('Meta Description:')) meta.seoDescription = line.replace('Meta Description:', '').trim();
-    if (line.startsWith('Tags:')) meta.tags = line.replace('Tags:', '').split(',').map(t => t.trim());
-    if (line.startsWith('Image Prompts:')) {
-      const prompts = line.replace('Image Prompts:', '').trim();
-      const opts = prompts.split(';').map(p => p.trim());
-      meta.imageOptionA = opts[0]?.replace('Option A:', '').trim() || '';
-      meta.imageOptionB = opts[1]?.replace('Option B:', '').trim() || '';
-    }
-  }
-  return meta;
-}
-
-// --- Excerpt extraction ---
-
-function extractExcerpt(markdown, maxLen = 200) {
-  const tldrMatch = markdown.match(/TL;DR:\s*([^\n]+)/);
-  if (tldrMatch) return tldrMatch[1].trim().substring(0, maxLen);
-  const firstPara = markdown.match(/^#\s+.*\n\n([^\n]+)/m);
-  if (firstPara) return firstPara[1].trim().substring(0, maxLen);
-  return markdown.substring(0, maxLen).trim();
-}
-
-// --- Slugify ---
-
-function slugify(text) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .substring(0, 80);
-}
-
-// --- Extract title ---
-
-function extractTitle(markdown) {
-  const match = markdown.match(/^#\s+(.+)/m);
-  return match ? match[1].trim() : '';
-}
-
-// --- Image ---
-
-async function getHeroImage(prompt, sanity) {
-  // Try Unsplash first
-  const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
-  if (unsplashKey) {
-    try {
-      const res = await fetch(`https://api.unsplash.com/photos/random?query=${encodeURIComponent(prompt)}&orientation=landscape`, {
-        headers: { 'Authorization': `Client-ID ${unsplashKey}` }
-      });
-      const data = await res.json();
-      if (data.urls?.raw) {
-        const imgRes = await fetch(data.urls.raw);
-        const buffer = Buffer.from(await imgRes.arrayBuffer());
-        const asset = await sanity.assets.upload('image', buffer, { filename: `cover-${Date.now()}.jpg` });
-        return { _id: asset._id, source: 'unsplash', photographer: data.user?.name };
-      }
-    } catch (e) { console.log('Unsplash fallback:', e.message); }
-  }
-
-  // Try Pexels
-  const pexelsKey = process.env.PEXELS_API_KEY;
-  if (pexelsKey) {
-    try {
-      const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(prompt)}&per_page=1&orientation=landscape`, {
-        headers: { 'Authorization': pexelsKey }
-      });
-      const data = await res.json();
-      if (data.photos?.length > 0) {
-        const photo = data.photos[0];
-        const imgRes = await fetch(photo.src.original);
-        const buffer = Buffer.from(await imgRes.arrayBuffer());
-        const asset = await sanity.assets.upload('image', buffer, { filename: `cover-${Date.now()}.jpg` });
-        return { _id: asset._id, source: 'pexels', photographer: photo.photographer };
-      }
-    } catch (e) { console.log('Pexels fallback:', e.message); }
-  }
-
-  // Fallback: Pollinations (generation)
-  try {
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1280&height=720&nologo=true`;
-    const imgRes = await fetch(url);
-    const buffer = Buffer.from(await imgRes.arrayBuffer());
-    const asset = await sanity.assets.upload('image', buffer, { filename: `cover-${Date.now()}.jpg` });
-    return { _id: asset._id, source: 'pollinations' };
-  } catch (e) {
-    console.log('Pollinations fallback:', e.message);
-  }
-
-  return null;
-}
-
-// --- Cleanup functions ---
-
-function stripInlineSourceCitations(markdown) {
-  return markdown.replace(/\(Source:?\s*[^)]*\)/gi, '')
-                 .replace(/\([^)]*https?:\/\/[^\s)]+[^)]*\)/g, '');
-}
-
-function delinkUnverifiedReslinkLinks(markdown, verifiedPosts) {
-  const validSlugs = verifiedPosts.map(p => p.slug?.current).filter(Boolean);
-  const validUrls = validSlugs.map(s => `reslink.org/${s}`);
-  return markdown.replace(/\[([^\]]*)\]\((https?:\/\/[^)]*reslink\.org[^)]*)\)/g, (match, text, url) => {
-    if (validUrls.some(v => url.includes(v))) return match;
-    return text;
+  const res = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query,
+      search_depth: "basic", // 1 credit per search on the free tier, not 2
+      max_results: maxResults,
+    }),
   });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Tavily error ${res.status}: ${body}`);
+  }
+  const data = await res.json();
+  return (data.results || []).map((r) => ({
+    title: r.title,
+    url: r.url,
+    content: r.content,
+  }));
 }
 
-function fixSquishedDates(markdown) {
-  return markdown.replace(/\b([A-Z][a-z]+)(\d{1,2})(\d{4})\b/g, '$1 $2, $3');
+// Runs a small, fixed set of searches covering the topic-scanner's top
+// priorities (time-critical deadlines, breaking news, general EPC-relevant
+// developments) for one market. This is a deliberately scoped-down version
+// of the full 15-20 search prompt, enough to ground the model in real
+// results without burning through Tavily's free 1,000 credits/month.
+export async function gatherSearchContext(targetMarket) {
+  const now = new Date();
+  const monthYear = now.toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+
+  const queries = [
+    {
+      label: "Time-critical deadlines and policy changes",
+      query: `${targetMarket} solar policy deadline OR regulatory change ${monthYear}`,
+    },
+    {
+      label: "Breaking solar/EPC news, last 14 days",
+      query: `${targetMarket} solar EPC news ${monthYear}`,
+    },
+    {
+      label: "General solar market developments",
+      query: `${targetMarket} commercial industrial solar market update ${monthYear}`,
+    },
+  ];
+
+  const groups = [];
+  for (const q of queries) {
+    const results = await tavilySearch(q.query, 4);
+    groups.push({ label: q.label, results });
+  }
+  return groups;
 }
 
-function fixNumericRangeSpacing(markdown) {
-  return markdown.replace(/(\d+)\s*[-–]\s*(\d+)\s*([a-z]+)/gi, '$1–$2 $3');
-}
-
-function removeYouMayAlsoLikeSection(markdown) {
-  return markdown.replace(/\n?#+\s*You May Also Like\s*.*?(\n#+|\n\n|$)/is, '');
-}
-
-function restrictSourcesToVerified(markdown, verifiedUrls) {
-  const lines = markdown.split('\n');
-  let inSources = false;
-  const filtered = [];
-  for (const line of lines) {
-    if (/^#+\s*Sources/i.test(line)) {
-      inSources = true;
-      filtered.push(line);
+export function formatSearchResultsForPrompt(groups) {
+  let out = "";
+  for (const group of groups) {
+    out += `\n### ${group.label}\n`;
+    if (!group.results.length) {
+      out += "(no results found)\n";
       continue;
     }
-    if (inSources) {
-      if (line.startsWith('#') || line.trim() === '') {
-        inSources = false;
-        filtered.push(line);
-        continue;
-      }
-      const urls = line.match(/https?:\/\/[^\s)]+/g);
-      if (urls && urls.some(u => verifiedUrls.some(v => u.includes(v)))) {
-        filtered.push(line);
-      }
-    } else {
-      filtered.push(line);
+    for (const r of group.results) {
+      out += `- ${r.title}\n  URL: ${r.url}\n  ${(r.content || "").slice(0, 500)}\n`;
     }
   }
-  return filtered.join('\n');
+  return out;
 }
 
-// --- Exports (only once) ---
+// ---- 3b. Search via Google News RSS, replacing Tavily search -------------
+//
+// A real, deliberately published feed, not a scraped search-results page,
+// so it doesn't have the bot-detection fragility of scraping Google or
+// DuckDuckGo directly. Real caveats: unofficial (Google doesn't document
+// or support this), skews toward slightly stale news, and hands back
+// Google's redirect links rather than the real article URL. That last
+// part is fine here, Jina Reader (below) follows the redirect itself when
+// it fetches, the same way a browser would.
 
-export {
-  pickTargetMarket,
-  fetchRecentPosts,
-  gatherRSSSearchContext,
-  jinaFetchMany,
-  formatSearchResultsForPrompt,
-  formatExtractedContentForPrompt,
-  parseMetaPanel,
-  extractExcerpt,
-  slugify,
-  extractTitle,
-  getHeroImage,
-  stripInlineSourceCitations,
-  delinkUnverifiedReslinkLinks,
-  fixSquishedDates,
-  fixNumericRangeSpacing,
-  removeYouMayAlsoLikeSection,
-  restrictSourcesToVerified
-};
+function parseRSSItems(xml, limit = 4) {
+  const clean = (s) =>
+    (s || "")
+      .replace(/^<!\[CDATA\[/, "")
+      .replace(/\]\]>$/, "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const items = [];
+  const blocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
+  for (const block of blocks.slice(0, limit)) {
+    const title = clean((block.match(/<title>([\s\S]*?)<\/title>/) || [])[1]);
+    const link = ((block.match(/<link>([\s\S]*?)<\/link>/) || [])[1] || "").trim();
+    const desc = clean((block.match(/<description>([\s\S]*?)<\/description>/) || [])[1]);
+    if (title && link) items.push({ title, url: link, content: desc });
+  }
+  return items;
+}
+
+async function fetchGoogleNewsRSS(query, limit = 4) {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(
+    query
+  )}&hl=en-US&gl=US&ceid=US:en`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`RSS fetch error ${res.status}`);
+    const xml = await res.text();
+    return parseRSSItems(xml, limit);
+  } catch (err) {
+    console.log(`Warning: RSS search failed for "${query}" (${err.message}). Continuing with fewer results.`);
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Same three-query shape as the old Tavily version, same output shape too,
+// this is a drop-in replacement for gatherSearchContext above.
+export async function gatherRSSSearchContext(targetMarket) {
+  const now = new Date();
+  const monthYear = now.toLocaleString("en-US", { month: "long", year: "numeric" });
+
+  const queries = [
+    { label: "Time-critical deadlines and policy changes", q: `${targetMarket} solar policy deadline` },
+    { label: "Breaking solar/EPC news", q: `${targetMarket} solar EPC news ${monthYear}` },
+    { label: "General solar market developments", q: `${targetMarket} commercial industrial solar market` },
+  ];
+
+  const groups = [];
+  for (const item of queries) {
+    const results = await fetchGoogleNewsRSS(item.q, 4);
+    groups.push({ label: item.label, results });
+  }
+  return groups;
+}
+
+// ---- 4. Fetching the SOURCES_TO_FETCH URLs from the brief ----------------
+//
+// content-writer.md requires reading the actual pages listed in the brief
+// before writing any claim ("Never write a claim without a fetched
+// source"). The model has no fetch tool. Same gap as the topic scanner's
+// search requirement, one stage later, so it gets the same fix: fetch it
+// ourselves, hand over the content as plain text.
+
+export function extractSourceUrls(briefText) {
+  const section = briefText.match(
+    /SOURCES_TO_FETCH:([\s\S]*?)(?:\n[A-Z_]+:|---END BRIEF---|$)/
+  );
+  const text = section ? section[1] : briefText;
+  const urls = text.match(/https?:\/\/[^\s)]+/g) || [];
+  return [...new Set(urls)].slice(0, 6); // dedupe, cap at 6 per run
+}
+
+export async function tavilyExtract(urls) {
+  if (!urls.length) return { results: [], failed: [] };
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "TAVILY_API_KEY is not set. Get a free key at tavily.com and add it to .env."
+    );
+  }
+  const res = await fetch("https://api.tavily.com/extract", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      urls,
+      extract_depth: "basic", // 1 credit per 5 successful extractions
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Tavily extract error ${res.status}: ${body}`);
+  }
+  const data = await res.json();
+  return {
+    results: (data.results || []).map((r) => ({
+      url: r.url,
+      content: (r.raw_content || "").slice(0, 3000),
+    })),
+    failed: (data.failed_results || []).map((f) => f.url || f),
+  };
+}
+
+export function formatExtractedContentForPrompt(extracted) {
+  let out = "";
+  for (const r of extracted.results) {
+    out += `\n### Source (cite this exact URL, it's the real destination, not the Google redirect link you may see elsewhere): ${r.url}\n${r.content}\n`;
+  }
+  if (extracted.failed.length) {
+    out += `\n### Could not fetch, treat any claim depending on these as unsourced per your own rules:\n`;
+    for (const url of extracted.failed) out += `- ${url}\n`;
+  }
+  return out;
+}
+
+// ---- 4b. Fetching via Jina Reader, replacing Tavily Extract --------------
+//
+// Free, no key required for basic use (a key just raises the rate limit,
+// nowhere near needed at our volume). Jina fetches the page itself and
+// follows redirects the way a browser does, which is why the Google News
+// redirect links from gatherRSSSearchContext can be handed to it directly,
+// no manual unwrapping needed.
+
+export async function jinaFetchOne(url) {
+  const apiKey = process.env.JINA_API_KEY; // optional
+  const headers = apiKey
+    ? { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
+    : { Accept: "application/json" };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers,
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Jina error ${res.status}`);
+
+    // JSON mode gives back the real, final URL after Google's redirect
+    // gets followed, that's what should get cited, not the ugly wrapper
+    // link. Falling back to the original URL if the response shape isn't
+    // what's expected, rather than failing the whole fetch over it.
+    const raw = await res.text();
+    try {
+      const parsed = JSON.parse(raw);
+      const data = parsed.data || parsed;
+      return {
+        resolvedUrl: data.url || url,
+        content: (data.content || raw).slice(0, 3000),
+      };
+    } catch {
+      return { resolvedUrl: url, content: raw.slice(0, 3000) };
+    }
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error("Jina Reader didn't respond within 30s");
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function jinaFetchMany(urls) {
+  const settled = await Promise.allSettled(
+    urls.map((url) =>
+      jinaFetchOne(url).then(({ resolvedUrl, content }) => ({
+        originalUrl: url,
+        url: resolvedUrl,
+        content,
+      }))
+    )
+  );
+  const results = [];
+  const failed = [];
+  settled.forEach((outcome, i) => {
+    if (outcome.status === "fulfilled") results.push(outcome.value);
+    else failed.push(urls[i]);
+  });
+  return { results, failed };
+}
+
+// The model sees both the resolved URL (in the fetched-content block) and
+// the original Google redirect link (in the brief's SOURCES_TO_FETCH
+// list), and doesn't reliably pick the resolved one when citing sources.
+// Rather than keep hoping the prompt fixes that, force it: replace every
+// occurrence of each original URL with its resolved counterpart directly
+// in the final draft, deterministic, not dependent on model behavior.
+export function replaceOriginalUrlsWithResolved(markdown, extractedResults) {
+  let cleaned = markdown;
+  let replacedCount = 0;
+  for (const r of extractedResults) {
+    if (r.originalUrl && r.url && r.originalUrl !== r.url && cleaned.includes(r.originalUrl)) {
+      cleaned = cleaned.split(r.originalUrl).join(r.url);
+      replacedCount++;
+    }
+  }
+  return { cleaned, replacedCount };
+}
+
+// ---- 6. Parsing the meta panel, instead of just discarding it ------------
+//
+// Your content-writer prompt's "meta panel" (hidden via HTML comment) has
+// real, usable data in it, meta title, meta description, tags, it was
+// just being thrown away along with the comment wrapper. Your real Sanity
+// schema has actual fields for this: seoTitle, seoDescription, tags.
+
+export function parseMetaPanel(rawMarkdown) {
+  const match = rawMarkdown.match(/<!--([\s\S]*?)-->/);
+  if (!match) return {};
+  const panel = match[1];
+
+  const get = (label) => {
+    const re = new RegExp(`${label}:\\s*([^;]+)`, "i");
+    const m = panel.match(re);
+    if (!m) return undefined;
+    return m[1].replace(/\(\d+\s*chars?\)\s*$/i, "").trim();
+  };
+
+  const seoTitle = get("Meta Title");
+  const seoDescription = get("Meta Description");
+  const tagsRaw = get("Tags");
+  const tags = tagsRaw
+    ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean)
+    : [];
+
+  return { seoTitle, seoDescription, tags };
+}
+
+export function extractExcerpt(markdown, maxLen = 200) {
+  // content-writer.md now outputs TL;DR as a bare paragraph, no heading,
+  // just starting with the literal text "TL;DR:", matching your real
+  // published posts. Tolerant of minor formatting drift (optional bold
+  // markers, "TL DR", "TLDR", etc), models aren't perfectly consistent.
+  const tldrMatch = markdown.match(/(?:\*\*)?TL\s*;?\s*DR:?(?:\*\*)?\s*([\s\S]*?)(?:\n\n|\n##|$)/i);
+  let text = tldrMatch ? tldrMatch[1] : "";
+
+  // Fall back to the first real paragraph after the H1 if there's no
+  // TL;DR. The title line itself is stripped out first, always, so it
+  // can never end up inside the excerpt no matter what follows it.
+  if (!text.trim()) {
+    const withoutTitle = markdown.replace(/^#\s+.+\n+/, "");
+    const paraMatch = withoutTitle.match(/([\s\S]*?)(?:\n##|\n\n|$)/);
+    text = paraMatch ? paraMatch[1] : "";
+  }
+
+  text = text.replace(/[#*_>`]/g, "").replace(/\s+/g, " ").trim();
+  return text.length > maxLen ? text.slice(0, maxLen - 3).trim() + "..." : text;
+}
+
+export function delinkUnverifiedReslinkLinks(markdown, verifiedUrls) {
+  const verified = new Set(verifiedUrls);
+  let strippedCount = 0;
+  const cleaned = markdown.replace(
+    /\[([^\]]+)\]\((https?:\/\/(?:www\.)?reslink\.org[^\s)]*)\)/g,
+    (match, text, url) => {
+      if (verified.has(url)) return match; // real, verified post, keep it
+      strippedCount++;
+      return text; // invented (demo pages, resources, etc.), drop the link, keep the text
+    }
+  );
+  return { cleaned, strippedCount };
+}
+
+// The model sometimes invents plausible-looking titles even when handed
+// the real post list, "Solar Design Software Benefits" instead of an
+// actual title. delinkUnverifiedReslinkLinks correctly drops the fake
+// link but leaves the fake title sitting there as dead, non-clickable
+// text, which looks broken. This is more aggressive: drop the whole
+// bullet if it's not a real, verified link, and drop the entire section,
+// heading included, if nothing real survives.
+export function cleanYouMayAlsoLikeSection(markdown, verifiedUrls) {
+  const verified = new Set(verifiedUrls);
+  const sectionMatch = markdown.match(/(#{2,3}\s*You May Also Like\s*\n+)([\s\S]*?)(?=\n#{1,3}\s|$)/i);
+  if (!sectionMatch) return { cleaned: markdown, sectionRemoved: false };
+
+  const [fullMatch, heading, body] = sectionMatch;
+  const keptLines = body
+    .split("\n")
+    .filter((line) => {
+      const linkMatch = line.match(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+      return linkMatch && verified.has(linkMatch[2]);
+    });
+
+  if (keptLines.length === 0) {
+    const cleaned = markdown.replace(fullMatch, "").replace(/\n{3,}/g, "\n\n");
+    return { cleaned, sectionRemoved: true };
+  }
+
+  const cleaned = markdown.replace(fullMatch, heading + keptLines.join("\n") + "\n");
+  return { cleaned, sectionRemoved: false };
+}
+
+// Unconditional removal, "You May Also Like" is off entirely for now,
+// regardless of whether any links in it happen to be real.
+export function removeYouMayAlsoLikeSection(markdown) {
+  const sectionMatch = markdown.match(/#{2,3}\s*You May Also Like\s*\n+[\s\S]*?(?=\n#{1,3}\s|$)/i);
+  if (!sectionMatch) return { cleaned: markdown, removed: false };
+  const cleaned = markdown.replace(sectionMatch[0], "").replace(/\n{3,}/g, "\n\n");
+  return { cleaned, removed: true };
+}
+
+// Checking whether a URL merely responds (the existing lint broken-link
+// check) isn't the same as knowing it's the right page. A source that
+// 200s but was never actually fetched and read isn't verified, it's a
+// guess that happened to resolve. Restrict the final Sources section to
+// only what was genuinely fetched via Jina, drop anything else, fewer
+// sources that are all real beats more sources with some risk of being
+// wrong. Light URL normalization (trailing slash, protocol) so a
+// legitimately-fetched source doesn't get dropped over formatting noise.
+function normalizeUrl(url) {
+  return url.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase();
+}
+
+export function restrictSourcesToVerified(markdown, verifiedUrls) {
+  const verifiedNormalized = new Set(verifiedUrls.map(normalizeUrl));
+  const sectionMatch = markdown.match(/(#{2,3}\s*Sources\s*\n+)([\s\S]*?)(?=\n#{1,3}\s|$)/i);
+  if (!sectionMatch) return { cleaned: markdown, removedCount: 0, sectionEmpty: false };
+
+  const [fullMatch, heading, body] = sectionMatch;
+  const lines = body.split("\n").filter((l) => l.trim().length > 0);
+  let removedCount = 0;
+  const keptLines = lines.filter((line) => {
+    const urlMatch = line.match(/https?:\/\/[^\s)\]]+/);
+    const isVerified = urlMatch && verifiedNormalized.has(normalizeUrl(urlMatch[0]));
+    if (!isVerified) removedCount++;
+    return isVerified;
+  });
+
+  if (keptLines.length === 0) {
+    const cleaned = markdown.replace(fullMatch, "").replace(/\n{3,}/g, "\n\n");
+    return { cleaned, removedCount, sectionEmpty: true };
+  }
+  const cleaned = markdown.replace(fullMatch, heading + keptLines.join("\n") + "\n");
+  return { cleaned, removedCount, sectionEmpty: false };
+}
+
+// Guaranteed catch-all: any Google News redirect link that's still in the
+// draft after replaceOriginalUrlsWithResolved has run, meaning it came
+// from a brief field other than SOURCES_TO_FETCH and never got resolved,
+// gets de-linked the same way. An unreadable redirect ID is never an
+// acceptable citation, whether we have a real URL to swap it for or not.
+export function stripUnresolvedGoogleRedirects(markdown) {
+  let strippedCount = 0;
+  const cleaned = markdown.replace(
+    /\[([^\]]+)\]\((https?:\/\/news\.google\.com\/[^\s)]*)\)/g,
+    (match, text) => {
+      strippedCount++;
+      return text;
+    }
+  );
+  // Also catch bare (non-linked) redirect URLs the model sometimes pastes
+  // in plain text rather than as a Markdown link.
+  const cleaned2 = cleaned.replace(/https?:\/\/news\.google\.com\/rss\/articles\/[^\s)]*/g, () => {
+    strippedCount++;
+    return "";
+  });
+  return { cleaned: cleaned2, strippedCount };
+}
+
+// content-writer.md explicitly bans inline "(Source: ...)" citations
+// interrupting body paragraphs, sources belong only in the Sources
+// section. The prompt rule alone doesn't reliably hold, this strips any
+// that survive. Handles one level of nested parens (a URL or quoted
+// title inside the citation), not infinitely nested, that's not a shape
+// this ever needs to handle in practice.
+export function stripInlineSourceCitations(markdown) {
+  let strippedCount = 0;
+  // First pass: explicit "(Source: ...)" style, whatever's inside.
+  let cleaned = markdown.replace(
+    /\s*\((?:Source|Sources?):(?:[^()]|\([^()]*\))*\)/gi,
+    () => {
+      strippedCount++;
+      return "";
+    }
+  );
+  // Second, broader pass: any standalone parenthetical containing a bare
+  // URL, regardless of wording ("Circular 2023/005, https://...", "per
+  // https://...", etc). The model keeps finding new phrasings for the
+  // same underlying habit, this catches the shape instead of the words.
+  // Excludes real Markdown links, `(?<!\])` means this parenthetical
+  // isn't the URL half of a [text](url) link.
+  cleaned = cleaned.replace(/(?<!\])\s*\([^()]*https?:\/\/[^()\s]+[^()]*\)/g, () => {
+    strippedCount++;
+    return "";
+  });
+  // Clean up any stray double-spaces or space-before-punctuation left
+  // behind by the removal.
+  cleaned = cleaned.replace(/\s+([.,;:])/g, "$1").replace(/[ \t]{2,}/g, " ");
+  return { cleaned, strippedCount };
+}
+
+// Real, reproducible bug seen twice now: the model occasionally writes a
+// date with no spaces at all inside a bold label, "July42026" instead of
+// "July 4, 2026". Two rounds of prompt instructions didn't fix it, this
+// catches it deterministically. Narrow on purpose, month name directly
+// followed by a 1-2 digit day directly followed by exactly 4 digits, this
+// exact shape essentially only occurs from this specific bug, not from
+// real prose.
+export function fixSquishedDates(markdown) {
+  const months =
+    "January|February|March|April|May|June|July|August|September|October|November|December";
+  const regex = new RegExp(`\\b(${months})(\\d{1,2})(\\d{4})(?!\\d)`, "g");
+  let fixedCount = 0;
+  const cleaned = markdown.replace(regex, (match, month, day, year) => {
+    fixedCount++;
+    return `${month} ${day}, ${year}`;
+  });
+  return { cleaned, fixedCount };
+}
+
+// Same failure category as fixSquishedDates, a number glued directly to
+// the word after it, just showing up in durations now ("3months") instead
+// of dates. Fixed in two narrow passes: first the number-word gap, then
+// small numeric ranges ("0-3" -> "0 - 3"). The range fix is deliberately
+// limited to 1-2 digit numbers on both sides so it never touches a
+// standards code or model number ("IEC 61730-1", "TIS 1645-1") or a real
+// compound word ("Tier-1", "25-year").
+export function fixDurationSpacing(markdown) {
+  let fixedCount = 0;
+  let cleaned = markdown.replace(/(\d)(months?|days?|weeks?|years?|hours?|minutes?)\b/gi, (m, d, w) => {
+    fixedCount++;
+    return `${d} ${w}`;
+  });
+  cleaned = cleaned.replace(/\b(\d{1,2})\s*[-–]\s*(\d{1,2})\b/g, (m, a, b) => {
+    fixedCount++;
+    return `${a} - ${b}`;
+  });
+  return { cleaned, fixedCount };
+}
+
+// ---- 7. Cover image: extract the prompt, generate it, upload it ---------
+//
+// content-writer.md already outputs two hero image prompt options inside
+// the meta panel. This pulls Option A out, generates it via Pollinations
+// (free, no key needed), and uploads the result to Sanity's asset store
+// so it can be referenced as the post's cover image.
+
+export function extractHeroImagePrompt(rawMarkdown) {
+  const panelMatch = rawMarkdown.match(/<!--([\s\S]*?)-->/);
+  if (!panelMatch) return null;
+  const panel = panelMatch[1];
+
+  const imgSection = panel.match(/Image Prompts:\s*([\s\S]+)$/i);
+  if (!imgSection) return null;
+
+  const optionA = imgSection[1].match(/Option A:\s*([^;\]]+)/i);
+  if (optionA) return optionA[1].trim();
+
+  // Fallback: whatever's there, capped to a sane length.
+  return imgSection[1].replace(/[[\]]/g, "").trim().slice(0, 400) || null;
+}
+
+export async function generateImage(prompt, { width = 1280, height = 720 } = {}) {
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
+    prompt
+  )}?width=${width}&height=${height}&model=flux&nologo=true`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Pollinations error ${res.status}`);
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) {
+      throw new Error(`Pollinations returned ${contentType || "unknown content type"}, not an image`);
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    // Real generated photos run well over 50KB. A near-empty or broken
+    // response is a real failure, not a quality judgment, catching a
+    // blank/error image, not rejecting one that's merely unattractive.
+    if (buffer.length < 20_000) {
+      throw new Error(`Pollinations returned a suspiciously small file (${buffer.length} bytes), likely broken`);
+    }
+    return buffer;
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("Pollinations didn't respond within 60s");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function uploadImageToSanity(sanityClient, buffer, filename) {
+  const asset = await sanityClient.assets.upload("image", buffer, { filename });
+  return asset._id;
+}
+
+// ---- 7b. Real stock photo search, now the primary path -------------------
+//
+// Unsplash tried first, then Pexels if Unsplash has nothing good. Both
+// real, free, and both require crediting the photographer whenever a
+// photo is actually used, that's the getHeroImage return value's
+// `attribution` field, log it or display it, don't silently drop it.
+
+export async function searchUnsplashImage(query) {
+  const accessKey = process.env.UNSPLASH_ACCESS_KEY;
+  if (!accessKey) {
+    throw new Error("UNSPLASH_ACCESS_KEY is not set. Get a free key at unsplash.com/developers.");
+  }
+  const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(
+    query
+  )}&per_page=1&orientation=landscape`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Client-ID ${accessKey}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Unsplash search error ${res.status}`);
+    const data = await res.json();
+    const photo = data?.results?.[0];
+    if (!photo) throw new Error(`Unsplash had no results for "${query}"`);
+
+    return {
+      imageUrl: photo.urls.regular,
+      photographerName: photo.user.name,
+      photographerLink: photo.user.links.html,
+      downloadLocation: photo.links.download_location,
+      source: "Unsplash",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Unsplash's API guidelines require pinging this endpoint whenever a
+// photo is actually used, separate from the license itself. Best-effort,
+// a failure here shouldn't block publishing the post.
+async function pingUnsplashDownload(downloadLocation) {
+  const accessKey = process.env.UNSPLASH_ACCESS_KEY;
+  try {
+    await fetch(`${downloadLocation}?client_id=${accessKey}`);
+  } catch (err) {
+    console.log(`Warning: Unsplash download ping failed (${err.message}), not blocking on this.`);
+  }
+}
+
+export async function searchPexelsImage(query) {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) {
+    throw new Error("PEXELS_API_KEY is not set. Get a free key at pexels.com/api.");
+  }
+  const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(
+    query
+  )}&per_page=1&orientation=landscape`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  try {
+    // Pexels wants the raw key in this header, not a "Bearer" or
+    // "Client-ID" prefix, different convention from Unsplash.
+    const res = await fetch(url, {
+      headers: { Authorization: apiKey },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Pexels search error ${res.status}`);
+    const data = await res.json();
+    const photo = data?.photos?.[0];
+    if (!photo) throw new Error(`Pexels had no results for "${query}"`);
+
+    return {
+      imageUrl: photo.src.large,
+      photographerName: photo.photographer,
+      photographerLink: photo.photographer_url,
+      source: "Pexels",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function downloadImage(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Image download error ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Stock search first (Unsplash, then Pexels), generation only as a last
+// resort if neither turns up a real match. Returns null (not a throw) if
+// everything fails, publishing without a cover image, same
+// graceful-degradation pattern as everywhere else in this pipeline.
+export async function getHeroImage(query) {
+  try {
+    const photo = await searchUnsplashImage(query);
+    const buffer = await downloadImage(photo.imageUrl);
+    await pingUnsplashDownload(photo.downloadLocation);
+    return {
+      buffer,
+      source: "unsplash",
+      attribution: `Photo by ${photo.photographerName} on Unsplash (${photo.photographerLink})`,
+    };
+  } catch (unsplashErr) {
+    console.log(`Unsplash search failed (${unsplashErr.message}), trying Pexels...`);
+  }
+
+  try {
+    const photo = await searchPexelsImage(query);
+    const buffer = await downloadImage(photo.imageUrl);
+    return {
+      buffer,
+      source: "pexels",
+      attribution: `Photo by ${photo.photographerName} on Pexels (${photo.photographerLink})`,
+    };
+  } catch (pexelsErr) {
+    console.log(`Pexels search also failed (${pexelsErr.message}), falling back to generation as a last resort...`);
+  }
+
+  try {
+    const buffer = await generateImage(query);
+    return { buffer, source: "generated", attribution: null };
+  } catch (genErr) {
+    console.log(`Generation also failed (${genErr.message}), publishing without a cover image.`);
+    return null;
+  }
+}
+
+// ---- 5. Real Reslink post links, for "You May Also Like" -----------------
+//
+// Your topic-scanner brief asks for RELATED_RESLINK_BLOGS via a
+// site:reslink.org search, another live search the model can't actually
+// run, so it was inventing URLs instead. Same fix pattern as everywhere
+// else: pull the real thing from Sanity directly, hand it over as fact.
+
+export async function fetchRecentPosts(sanityClient, documentType, limit = 8) {
+  const query = `*[_type == $type && defined(slug.current)] | order(_createdAt desc) [0...$limit]{title, "slug": slug.current}`;
+  try {
+    const docs = await sanityClient.fetch(query, { type: documentType, limit });
+    return docs
+      .filter((d) => d.title && d.slug)
+      .map((d) => ({ title: d.title, url: `https://reslink.org/blogs/${d.slug}` }));
+  } catch (err) {
+    console.log(
+      `Warning: couldn't fetch recent posts from Sanity (${err.message}). "You May Also Like" will have nothing real to link to this run.`
+    );
+    return [];
+  }
+}
+
+export function formatRecentPostsForPrompt(posts) {
+  if (!posts.length) {
+    return "(No other posts exist yet to link to. Omit the \"You May Also Like\" section entirely rather than inventing links.)";
+  }
+  return posts.map((p) => `- ${p.title}\n  ${p.url}`).join("\n");
+}
