@@ -544,6 +544,15 @@ export function stripInlineSourceCitations(markdown) {
     strippedCount++;
     return "";
   });
+  // Third pass: 【N†URL】 style markers, a citation format some models
+  // reproduce from training data resembling browsing-tool citation
+  // syntax, even with no such tool involved. Full-width brackets are
+  // essentially never used in normal English prose, safe to strip
+  // aggressively without meaningful false-positive risk.
+  cleaned = cleaned.replace(/\s*【[^【】]*】/g, () => {
+    strippedCount++;
+    return "";
+  });
   // Clean up any stray double-spaces or space-before-punctuation left
   // behind by the removal.
   cleaned = cleaned.replace(/\s+([.,;:])/g, "$1").replace(/[ \t]{2,}/g, " ");
@@ -680,7 +689,7 @@ export async function searchUnsplashImage(query) {
     if (!photo) throw new Error(`Unsplash had no results for "${query}"`);
 
     return {
-      imageUrl: photo.urls.regular,
+      imageUrl: photo.urls.full,
       photographerName: photo.user.name,
       photographerLink: photo.user.links.html,
       downloadLocation: photo.links.download_location,
@@ -727,7 +736,7 @@ export async function searchPexelsImage(query) {
     if (!photo) throw new Error(`Pexels had no results for "${query}"`);
 
     return {
-      imageUrl: photo.src.large,
+      imageUrl: photo.src.large2x,
       photographerName: photo.photographer,
       photographerLink: photo.photographer_url,
       source: "Pexels",
