@@ -10,6 +10,7 @@
   "dependencies": {
     "@portabletext/markdown": "^1.4.4",
     "@sanity/client": "^7.23.0",
+    "date-fns": "^4.4.0",
     "dotenv": "^17.4.2"
   },
   "engines": {
