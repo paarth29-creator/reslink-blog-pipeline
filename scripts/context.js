@@ -1,4 +1,3 @@
-// scripts/context.js
 import { createClient } from '@sanity/client';
 import { parseISO, differenceInDays } from 'date-fns';
 
@@ -212,7 +211,6 @@ export async function getHeroImage(prompt, sanity) {
 // --- Cleanup functions ---
 
 export function stripInlineSourceCitations(markdown) {
-  // Remove (Source: ...) and standalone URL parentheticals
   return markdown.replace(/\(Source:?\s*[^)]*\)/gi, '')
                  .replace(/\([^)]*https?:\/\/[^\s)]+[^)]*\)/g, '');
 }
@@ -220,30 +218,25 @@ export function stripInlineSourceCitations(markdown) {
 export function delinkUnverifiedReslinkLinks(markdown, verifiedPosts) {
   const validSlugs = verifiedPosts.map(p => p.slug?.current).filter(Boolean);
   const validUrls = validSlugs.map(s => `reslink.org/${s}`);
-  // Remove links to reslink.org that aren't in the verified list
   return markdown.replace(/\[([^\]]*)\]\((https?:\/\/[^)]*reslink\.org[^)]*)\)/g, (match, text, url) => {
     if (validUrls.some(v => url.includes(v))) return match;
-    return text; // keep text, drop link
+    return text;
   });
 }
 
 export function fixSquishedDates(markdown) {
-  // Fix "July42026" → "July 4, 2026"
   return markdown.replace(/\b([A-Z][a-z]+)(\d{1,2})(\d{4})\b/g, '$1 $2, $3');
 }
 
 export function fixNumericRangeSpacing(markdown) {
-  // Fix "3–6months" → "3–6 months"
   return markdown.replace(/(\d+)\s*[-–]\s*(\d+)\s*([a-z]+)/gi, '$1–$2 $3');
 }
 
 export function removeYouMayAlsoLikeSection(markdown) {
-  // Remove entire "You May Also Like" section
   return markdown.replace(/\n?#+\s*You May Also Like\s*.*?(\n#+|\n\n|$)/is, '');
 }
 
 export function restrictSourcesToVerified(markdown, verifiedUrls) {
-  // Remove unverified sources from the Sources section
   const lines = markdown.split('\n');
   let inSources = false;
   const filtered = [];
@@ -263,7 +256,6 @@ export function restrictSourcesToVerified(markdown, verifiedUrls) {
       if (urls && urls.some(u => verifiedUrls.some(v => u.includes(v)))) {
         filtered.push(line);
       }
-      // otherwise skip this line
     } else {
       filtered.push(line);
     }
@@ -271,12 +263,7 @@ export function restrictSourcesToVerified(markdown, verifiedUrls) {
   return filtered.join('\n');
 }
 
-export function cleanYouMayAlsoLikeSection(markdown) {
-  // Alias for removeYouMayAlsoLikeSection
-  return removeYouMayAlsoLikeSection(markdown);
-}
-
-// --- All exports ---
+// --- Exports ---
 
 export {
   pickTargetMarket,
@@ -295,6 +282,5 @@ export {
   fixSquishedDates,
   fixNumericRangeSpacing,
   removeYouMayAlsoLikeSection,
-  restrictSourcesToVerified,
-  cleanYouMayAlsoLikeSection
+  restrictSourcesToVerified
 };
