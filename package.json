@@ -1,0 +1,17 @@
+{
+  "name": "reslink-blog-pipeline",
+  "version": "1.0.0",
+  "description": "Automated topic-scan -> write -> lint -> publish pipeline for the Reslink blog (Sanity CMS)",
+  "type": "module",
+  "scripts": {
+    "publish": "node scripts/orchestrator.js",
+    "test-lint": "node scripts/lint.js"
+  },
+  "dependencies": {
+    "@portabletext/markdown": "^1.4.3",
+    "@sanity/client": "^7.23.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
