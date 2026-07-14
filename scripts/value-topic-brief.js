@@ -73,9 +73,23 @@ const IMAGE_ANGLE_BY_CATEGORY = {
   safety: "inverter equipment room or industrial electrical panel, not a hazard/warning image",
 };
 
+// Adds a year qualifier when it fits, per your own manual edit on the
+// first post ("Solar Proposal Design Guide for EPCs" -> "... in 2026",
+// better SEO/GEO context). This is only a SUGGESTION field though,
+// content-writer.md generates the real meta title itself per its own
+// rules and isn't required to use this verbatim. If it doesn't
+// consistently show up in published posts after a few more runs, that's
+// the signal to add a code-level backstop instead, same escalation
+// pattern already used elsewhere in this project (word count, meta
+// description length) rather than assuming a prompt-level nudge alone
+// will hold.
 function truncateTitle(keyword, maxChars = 55) {
+  const year = new Date().getFullYear();
   const capitalized = keyword.replace(/\b\w/g, (c) => c.toUpperCase());
-  return capitalized.length <= maxChars ? capitalized : capitalized.slice(0, maxChars - 3).trim() + "...";
+  const withYear = `${capitalized} in ${year}`;
+  if (withYear.length <= maxChars) return withYear;
+  if (capitalized.length <= maxChars) return capitalized; // year doesn't fit, drop it rather than truncate mid-word
+  return capitalized.slice(0, maxChars - 3).trim() + "...";
 }
 
 function formatRecencyDevelopments(recencyResults) {

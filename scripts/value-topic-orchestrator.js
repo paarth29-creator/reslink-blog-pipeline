@@ -384,7 +384,13 @@ Output the complete expanded post, still following every rule from your instruct
   }
 
   try {
-    const paragraphIndices = contentBlocks.map((b, i) => (b._type === "block" && b.style === "normal" ? i : -1)).filter((i) => i !== -1);
+    // Real bug found in your first published post: bullet list items
+    // convert to the same shape as a normal paragraph (_type: "block",
+    // style: "normal"), just with an added listItem property, so they
+    // were counting toward "paragraph 3" and pulling the insertion point
+    // earlier than intended. Excluding anything with listItem set fixes
+    // it, only true prose paragraphs count now.
+    const paragraphIndices = contentBlocks.map((b, i) => (b._type === "block" && b.style === "normal" && !b.listItem ? i : -1)).filter((i) => i !== -1);
     if (paragraphIndices.length > 0) {
       const target = Math.min(3, paragraphIndices.length) - 1;
       const insertAfter = paragraphIndices[target];

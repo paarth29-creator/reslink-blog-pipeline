@@ -1,12 +1,25 @@
 name: Publish value-topic blog post
 
-# Manual trigger ONLY, no cron. Same isolation pattern as
-# check-search-console.yml: this file has no schedule trigger at all, so
-# it can never fire on its own and can never collide with publish-blog.yml's
-# 3x/day schedule. Run it from the Actions tab when you want to publish
-# the next topic from the list.
+# 8x/day schedule, requested times converted from IST to UTC (IST is
+# UTC+5:30, cron always runs in UTC regardless of server location):
+#   03:00 IST -> 21:30 UTC (previous day)   09:00 IST -> 03:30 UTC
+#   05:00 IST -> 23:30 UTC (previous day)   11:00 IST -> 05:30 UTC
+#   14:00 IST -> 08:30 UTC                  15:00 IST -> 09:30 UTC
+#   17:00 IST -> 11:30 UTC                  19:00 IST -> 13:30 UTC
+# GitHub's own cron scheduler can run a few minutes late under load, same
+# documented behavior as publish-blog.yml's schedule, not a bug here either.
+# workflow_dispatch stays available alongside the schedule for manual runs.
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "30 21 * * *" # 3:00 AM IST
+    - cron: "30 23 * * *" # 5:00 AM IST
+    - cron: "30 3 * * *"  # 9:00 AM IST
+    - cron: "30 5 * * *"  # 11:00 AM IST
+    - cron: "30 8 * * *"  # 2:00 PM IST
+    - cron: "30 9 * * *"  # 3:00 PM IST
+    - cron: "30 11 * * *" # 5:00 PM IST
+    - cron: "30 13 * * *" # 7:00 PM IST
 
 permissions:
   contents: write # needed to commit the updated tracker file back to the repo
