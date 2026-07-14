@@ -38,6 +38,7 @@ import {
   fixDurationSpacing,
   fixBoldedH3Headings,
   restrictSourcesToVerified,
+  restrictAllLinksToVerified,
   extractHeroImagePrompt,
   safeguardImageQuery,
   getHeroImage,
@@ -548,6 +549,20 @@ Every addition must be specific to this exact topic, not generic padding. Output
   const { cleaned: headingsFixedMarkdown, fixedCount: headingsFixed } = fixBoldedH3Headings(markdown);
   markdown = headingsFixedMarkdown;
   if (headingsFixed) console.log(`Fixed ${headingsFixed} bolded H3 heading(s), converted to H4.`);
+
+  // Whole-document check: any link anywhere that isn't a real,
+  // Jina-verified URL gets de-linked, not just ones sitting in the
+  // Sources section. This is what actually catches a hallucinated
+  // citation sitting inline in the body, which every earlier cleanup
+  // step in this pipeline was blind to.
+  const { cleaned: allLinksVerifiedMarkdown, strippedCount: unverifiedLinksStripped } = restrictAllLinksToVerified(
+    markdown,
+    extracted.results.map((r) => r.url)
+  );
+  markdown = allLinksVerifiedMarkdown;
+  if (unverifiedLinksStripped) {
+    console.log(`De-linked ${unverifiedLinksStripped} unverified citation link(s) found outside the Sources section, kept the text, dropped the link.`);
+  }
 
   // Restrict the final Sources list to only what was actually fetched
   // and verified via Jina, not just whatever the model wrote. A source

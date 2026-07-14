@@ -566,6 +566,33 @@ function normalizeUrl(url) {
   return url.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase();
 }
 
+// Real bug found in production: a hallucinated government URL, plausible
+// path and all, showed up cited in the body, survived every existing
+// cleanup step, and only got caught (unreliably) by lint's HTTP check at
+// the very end. The reason: restrictSourcesToVerified below only checks
+// the "## Sources" section. A citation link anywhere else in the
+// document, inline in a paragraph, inside an EPC blockquote, wherever,
+// was never checked against what was actually Jina-verified. This closes
+// that gap: any link in the entire document that isn't a real,
+// Jina-fetched URL gets de-linked (text kept, href dropped), the same
+// integrity standard the Sources section already gets, just applied
+// everywhere. reslink.org links are left alone here, delinkUnverifiedReslinkLinks
+// already handles those separately with its own verified-post list.
+export function restrictAllLinksToVerified(markdown, verifiedUrls) {
+  const verifiedNormalized = new Set(verifiedUrls.map(normalizeUrl));
+  let strippedCount = 0;
+  const cleaned = markdown.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (match, text, url) => {
+      if (/reslink\.org/i.test(url)) return match; // handled separately, leave it
+      if (verifiedNormalized.has(normalizeUrl(url))) return match; // real, Jina-verified, keep it
+      strippedCount++;
+      return text; // unverified anywhere in the document, drop the link, keep the text
+    }
+  );
+  return { cleaned, strippedCount };
+}
+
 export function restrictSourcesToVerified(markdown, verifiedUrls) {
   const verifiedNormalized = new Set(verifiedUrls.map(normalizeUrl));
   const sectionMatch = markdown.match(/(#{2,3}\s*Sources\s*\n+)([\s\S]*?)(?=\n#{1,3}\s|$)/i);
