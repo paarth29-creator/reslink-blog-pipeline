@@ -917,3 +917,73 @@ export function formatRecentPostsForPrompt(posts) {
   }
   return posts.map((p) => `- ${p.title}\n  ${p.url}`).join("\n");
 }
+
+// ---- 8. Google Search Console, read-only search performance data --------
+//
+// Authenticates via a service account (not OAuth), the right approach for
+// an unattended pipeline, no browser consent screen, no expiring token.
+// GSC_SERVICE_ACCOUNT_KEY holds the full contents of the downloaded JSON
+// key file. GSC_SITE_URL must exactly match how the property is verified
+// in Search Console: "sc-domain:reslink.org" for a domain property, or
+// the full "https://reslink.org/" (with trailing slash) for a URL-prefix
+// property. Check the property selector dropdown inside Search Console
+// itself if unsure which one applies.
+//
+// This is intentionally just a data-fetching function, not wired into any
+// decision-making yet. What the pipeline should actually do with this
+// data (the "self-analysis and feedback loop") is still an open design
+// question, not something to guess at silently inside a helper function.
+
+export async function fetchSearchConsoleData({
+  siteUrl,
+  startDate,
+  endDate,
+  dimensions = ["query", "page"],
+  rowLimit = 25,
+} = {}) {
+  const rawKey = process.env.GSC_SERVICE_ACCOUNT_KEY;
+  if (!rawKey) {
+    throw new Error(
+      "GSC_SERVICE_ACCOUNT_KEY is not set. Create a service account in Google Cloud, download its JSON key, and add the full contents as this env var / GitHub secret."
+    );
+  }
+
+  let credentials;
+  try {
+    credentials = JSON.parse(rawKey);
+  } catch (err) {
+    throw new Error(
+      `GSC_SERVICE_ACCOUNT_KEY isn't valid JSON (${err.message}). Make sure the entire downloaded .json file's contents were pasted in as-is, not a file path or a partial copy.`
+    );
+  }
+
+  // Lazy import: googleapis is a large package, only load it when this
+  // function is actually called, not on every pipeline run.
+  const { google } = await import("googleapis");
+
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
+  });
+
+  const searchconsole = google.searchconsole({ version: "v1", auth });
+
+  const response = await searchconsole.searchanalytics.query({
+    siteUrl,
+    requestBody: {
+      startDate,
+      endDate,
+      dimensions,
+      rowLimit,
+      dataState: "final", // excludes the last couple of days' still-settling data
+    },
+  });
+
+  return (response.data.rows || []).map((row) => ({
+    keys: row.keys,
+    clicks: row.clicks,
+    impressions: row.impressions,
+    ctr: row.ctr,
+    position: row.position,
+  }));
+}
