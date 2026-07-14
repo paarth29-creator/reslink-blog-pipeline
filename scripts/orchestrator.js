@@ -45,7 +45,7 @@ import {
 // ---- Config -----------------------------------------------------------
 
 const PRIMARY_MODEL =
-  process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b:free";
+  process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b";
 const FALLBACK_MODEL =
   process.env.OPENROUTER_FALLBACK_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
 // Pinned deliberately, not left on the random openrouter/free router.
