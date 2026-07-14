@@ -29,16 +29,20 @@ import {
   fetchRecentPosts,
   formatRecentPostsForPrompt,
   parseMetaPanel,
+  enforceMetaDescriptionLength,
   extractExcerpt,
   delinkUnverifiedReslinkLinks,
   removeYouMayAlsoLikeSection,
   fixSquishedDates,
   fixDurationSpacing,
+  fixBoldedH3Headings,
   restrictSourcesToVerified,
   extractHeroImagePrompt,
+  safeguardImageQuery,
   getHeroImage,
   PROMO_IMAGE_ASSET_ID,
   PROMO_IMAGE_LINK,
+  PROMO_IMAGE_ALT,
   uploadImageToSanity,
 } from "./context.js";
 
@@ -398,6 +402,14 @@ Every addition must be specific to this exact topic, not generic padding. Output
     }
   }
 
+  // Visibility into exactly what the model produced, before any of the
+  // cleanup passes below touch it. Useful for diagnosing structural
+  // issues (heading levels, formatting drift) at the source, rather than
+  // guessing whether a bug came from the model or from a cleanup step.
+  console.log("--- Raw draft from content writer (before cleanup) ---");
+  console.log(rawMarkdown);
+  console.log("--- end raw draft ---");
+
   // Pull the real data out of the meta panel before it gets stripped.
   const meta = parseMetaPanel(rawMarkdown);
 
@@ -508,6 +520,14 @@ Every addition must be specific to this exact topic, not generic padding. Output
   markdown = durationFixedMarkdown;
   if (durationFixed) console.log(`Fixed ${durationFixed} duration/range spacing issue(s).`);
 
+  // Categorization/supporting-info subheadings must be H4 with a bolded
+  // label, never a bare H3. Prompt rule for this has drifted before
+  // (caught and fixed manually once already), backstopped here the same
+  // way as the date/duration spacing fixes above.
+  const { cleaned: headingsFixedMarkdown, fixedCount: headingsFixed } = fixBoldedH3Headings(markdown);
+  markdown = headingsFixedMarkdown;
+  if (headingsFixed) console.log(`Fixed ${headingsFixed} bolded H3 heading(s), converted to H4.`);
+
   // Restrict the final Sources list to only what was actually fetched
   // and verified via Jina, not just whatever the model wrote. A source
   // that merely responds isn't the same as one that was actually read.
@@ -572,6 +592,12 @@ Every addition must be specific to this exact topic, not generic padding. Output
   // paragraph (TL;DR callout and headings don't count) and inserts right
   // after it. Wrapped defensively anyway, this should never be the
   // reason a post fails to publish.
+  //
+  // Link field confirmed from a real published document's raw JSON: a
+  // nested object with "href" and "openInNewTab", not a bare string.
+  // Alt text is a required field in this schema (Studio flags it with a
+  // warning icon when empty), set here to a fixed value since it's the
+  // same image on every post.
   try {
     const paragraphIndices = contentBlocks
       .map((b, i) => (b._type === "block" && b.style === "normal" ? i : -1))
@@ -584,7 +610,11 @@ Every addition must be specific to this exact topic, not generic padding. Output
         _type: "image",
         _key: randomKey(),
         asset: { _type: "reference", _ref: PROMO_IMAGE_ASSET_ID },
-        link: PROMO_IMAGE_LINK, // NOTE: unverified field name, see delivery note
+        alt: PROMO_IMAGE_ALT,
+        link: {
+          href: PROMO_IMAGE_LINK,
+          openInNewTab: true,
+        },
       });
       console.log(`Inserted the promo creative after paragraph ${target + 1}.`);
     } else {
@@ -623,6 +653,22 @@ Every addition must be specific to this exact topic, not generic padding. Output
   //   category -> a reference to an existing category document, needs
   //               matching/creating one, not just a string
 
+  // Meta description hard cap: 140-150 characters. A prompt-only
+  // instruction for this range has the same failure mode word-count
+  // enforcement had before it got a real code-level backstop, so this
+  // truncates deterministically at a word boundary rather than trusting
+  // the model to land in range on its own. The floor (140) can't be
+  // safely auto-padded without inventing filler text, so a too-short
+  // result is only logged as a warning, not silently stretched.
+  const metaDescResult = enforceMetaDescriptionLength(doc.seoDescription);
+  doc.seoDescription = metaDescResult.text;
+  if (metaDescResult.truncated) {
+    console.log(`Meta description truncated to fit the 140-150 char cap (was ${(meta.seoDescription || doc.excerpt).length} chars).`);
+  }
+  if (metaDescResult.tooShort) {
+    console.log(`Warning: meta description is only ${metaDescResult.text.length} chars, under the 140 floor. Watch if this recurs.`);
+  }
+
   // Guard against the model reusing one field's text for another, which
   // it does sometimes, title as the excerpt, SEO title as the SEO
   // description. If two fields that should be distinct come out
@@ -640,7 +686,14 @@ Every addition must be specific to this exact topic, not generic padding. Output
 
   console.log("Finding cover image (stock photo search first, generation as last resort)...");
   try {
-    const imagePrompt = extractHeroImagePrompt(rawMarkdown) || title;
+    // safeguardImageQuery catches the flag-image problem: if the model's
+    // image search phrase is empty, is just the bare market/country name,
+    // or mentions "flag" directly, it's swapped for a known-good
+    // landmark/skyline search phrase for that market instead. Stock photo
+    // libraries resolve a bare country or region name to a flag graphic
+    // almost every time, this is the code-level backstop for
+    // content-writer.md's own instructions on this.
+    const imagePrompt = safeguardImageQuery(extractHeroImagePrompt(rawMarkdown) || title, targetMarket);
     const hero = await getHeroImage(imagePrompt);
     if (hero) {
       const assetId = await uploadImageToSanity(sanity, hero.buffer, `${slugify(title)}-cover.jpg`);
