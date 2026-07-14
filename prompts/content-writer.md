@@ -101,7 +101,7 @@ LANGUAGE AND TONE
 
 TITLE AND META
 — Meta title: under 55 characters. Primary keyword must appear at the start.
-— Meta description: 145-160 characters, use the space fully, don't stop at 60-80 characters and call it done. Must answer the searcher's question before the click. No generic "complete guide" framing. No em-dashes.
+— Meta description: 140-150 characters, use the space fully, don't stop at 60-80 characters and call it done. Must answer the searcher's question before the click. No em-dashes. This is a hard cap, not a range to round up or down from, count the characters before finishing.
 — H1: must align closely with the meta title in topic and keyword. Not identical, but covering the same ground. H1 has no character limit.
 — If the meta title has been updated from a previous version, the H1 must be updated to match.
 — Tags: 4-6 tags, built from the brief's actual PRIMARY_KEYWORD, SECONDARY_KEYWORDS, and SEO_CLUSTERS_APPLICABLE, real search phrases someone would type, specific to this exact topic ("CSIP-AUS v1.2 certified inverters"), never generic category labels like "EPC," "Policy," or a bare country name on their own. If a tag would fit unchanged on every other blog post regardless of topic, it's too generic, replace it.
@@ -176,6 +176,7 @@ IMAGE SEARCH TERMS
 — Not an AI-image-generation prompt anymore, a short stock-photo search query, the kind of phrase you'd actually type into a photo search engine, 3-7 words, no camera/lighting jargon, no "photorealistic," no dimensions.
 — Reflect the blog's market and general theme, not literal solar-panel imagery, unless the blog type specifically calls for it (residential solar, storage/BESS hardware).
 — Prefer specific, real, searchable places over generic terms whenever the market has one, "Bangkok skyline Chao Phraya river" finds a better photo than "Asian city aerial."
+— Never search on a bare country, region, or market name alone ("United States," "European Union," "EU," "India," etc). A bare country or region name returns a flag graphic as the top result on stock photo search almost every time. Always pair the market with a specific city, skyline, landmark, or building type instead.
 — By blog type:
   Policy/market: a landscape, cityscape, farmland, or commercial building matching the specific country, not generic solar imagery
   Residential solar: "rooftop solar house neighborhood"
@@ -184,7 +185,7 @@ IMAGE SEARCH TERMS
   Industrial/warehouse: "aerial warehouse logistics facility"
   EPC operations/software: "laptop office workspace technology"
   Event: the actual venue name or host city, e.g. "Bangkok QSNCC convention center" or "Manila skyline"
-— Country reference, use the specific place name when it fits the topic: India, dense urban rooftops or rural farmland; Germany, rolling countryside or modern architecture; Philippines, Manila Bay or Metro Manila skyline; Thailand, Bangkok skyline or Chao Phraya river; UK, English countryside or London architecture; South Africa, Cape Town or Table Mountain; Spain, Mediterranean coastal city or terracotta rooftops; Australia, Australian suburban or commercial skyline.
+— Country reference, use the specific place name when it fits the topic: India, dense urban rooftops or rural farmland; United States, a specific city skyline (Austin, Phoenix, Chicago, or another solar-relevant market) rather than a generic "USA" or "United States" search; European Union, a specific member-state city (Berlin, Madrid, Amsterdam) rather than "EU" or "European Union," which returns flag imagery almost exclusively; Germany, rolling countryside or modern architecture; Philippines, Manila Bay or Metro Manila skyline; Thailand, Bangkok skyline or Chao Phraya river; UK, English countryside or London architecture; South Africa, Cape Town or Table Mountain; Spain, Mediterranean coastal city or terracotta rooftops; Australia, Australian suburban or commercial skyline.
 — Avoid grid infrastructure, pylons, substations, transmission towers, as the main subject, unless the blog is specifically about grid connection.
 — Provide 2 search query options in the meta panel (inside the meta panel comment, see Step 6).
 — Format: "Option A: [short search phrase]"
@@ -217,7 +218,7 @@ STEP 7 — PRE-DELIVERY SELF-REVIEW (MANDATORY)
 Before outputting the final Markdown, run through this checklist. Do not deliver until every item passes.
 
 □ Meta title is under 55 characters and starts with the primary keyword
-□ Meta description is 145-160 characters, uses the space fully, and answers the searcher's question
+□ Meta description is 140-150 characters, uses the space fully, and answers the searcher's question
 □ Tags are specific real search phrases from the brief's keywords, not generic category words
 □ No inline citation brackets anywhere in the body, sources are natural prose or a woven link only
 □ Every H2 and H4 is a real, topic-specific heading, not a generic label like "Definition / Context"
@@ -241,7 +242,7 @@ Before outputting the final Markdown, run through this checklist. Do not deliver
 □ One or two EPC blockquotes are present, placed where they're actually useful, not just at a fixed spot
 □ Categorization section uses H4 subheadings for its segments
 □ The Reslink mention is one woven sentence inside a real section, not a standalone block
-□ Image prompts are present with 2 options, inside the meta panel comment
+□ Image prompts are present with 2 options, inside the meta panel comment, and neither option is a bare country/region name
 □ Sources section lists every cited source with URL and what it supports
 □ Word count is at or above the WORD_COUNT_TARGET floor in the brief. If it isn't, you are not done, go back and add real depth, more sourced detail per section, more FAQ answers, do not submit a draft under the target.
 
