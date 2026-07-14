@@ -674,6 +674,8 @@ export async function uploadImageToSanity(sanityClient, buffer, filename) {
 // from Sanity's media library.
 export const PROMO_IMAGE_ASSET_ID = "image-4978883d208c7a22ca5c7cf812912b2eb79fa955-8000x4500-png";
 export const PROMO_IMAGE_LINK = "https://www.reslink.org/demo/";
+export const PROMO_IMAGE_ALT = "Reslink 3D solar design software";
+export const PROMO_IMAGE_LINK = "https://www.reslink.org/demo/";
 
 // ---- 7b. Real stock photo search, now the primary path -------------------
 //
