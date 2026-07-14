@@ -67,10 +67,26 @@ function extractLinks(markdown) {
 
 async function checkLinks(links) {
   const broken = [];
+  // Real bug found in production: a bare HEAD request with no User-Agent
+  // gets 403'd by bot-protection on many government/news sites, and some
+  // servers don't properly implement HEAD at all (returning 404/405 even
+  // though the page works fine via GET). Jina Reader fetched these exact
+  // same URLs successfully earlier in the pipeline, using a browser-like
+  // request, strong evidence the pages are real and this checker was the
+  // actual problem, not the links. A UA header plus a GET fallback fixes
+  // both failure modes without weakening the check itself, a link that
+  // still fails both HEAD and GET is genuinely broken.
+  const headers = {
+    "User-Agent":
+      "Mozilla/5.0 (compatible; ReslinkBlogLinkChecker/1.0; +https://reslink.org)",
+  };
   await Promise.all(
     links.map(async (url) => {
       try {
-        const res = await fetch(url, { method: "HEAD", redirect: "follow" });
+        let res = await fetch(url, { method: "HEAD", redirect: "follow", headers });
+        if (!res.ok) {
+          res = await fetch(url, { method: "GET", redirect: "follow", headers });
+        }
         if (!res.ok) broken.push(`${url} (status ${res.status})`);
       } catch (err) {
         broken.push(`${url} (unreachable: ${err.message})`);
