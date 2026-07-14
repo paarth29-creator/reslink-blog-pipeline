@@ -22,6 +22,7 @@ import {
   formatSearchResultsForPrompt,
   extractSourceUrls,
   jinaFetchMany,
+  filterTrustedSources,
   replaceOriginalUrlsWithResolved,
   stripUnresolvedGoogleRedirects,
   stripInlineSourceCitations,
@@ -302,10 +303,16 @@ Now produce the brief per your instructions, using only the information above.`;
   console.log("Fetching the brief's SOURCES_TO_FETCH URLs (Jina Reader)...");
   const sourceUrls = extractSourceUrls(topic);
   console.log(`Found ${sourceUrls.length} source URL(s) in the brief.`);
-  const extracted = await jinaFetchMany(sourceUrls);
+  const rawExtracted = await jinaFetchMany(sourceUrls);
+  const extracted = filterTrustedSources(rawExtracted);
+  if (extracted.droppedForTrust.length) {
+    console.log(
+      `Dropped ${extracted.droppedForTrust.length} fetched source(s) from untrusted/unrecognized domains, treating as unfetched rather than trusting the model to self-filter: ${extracted.droppedForTrust.join(", ")}`
+    );
+  }
   if (extracted.failed.length) {
     console.log(
-      `Could not fetch ${extracted.failed.length} of them, the writer will soften or drop claims that depend on those, per its own sourcing rules.`
+      `Could not use ${extracted.failed.length} source(s) total (fetch failures + untrusted domains), the writer will soften or drop claims that depend on those, per its own sourcing rules.`
     );
   }
   const sourceContext = formatExtractedContentForPrompt(extracted);
@@ -315,7 +322,7 @@ Now produce the brief per your instructions, using only the information above.`;
   console.log(`Found ${recentPosts.length} real post(s) on record.`);
 
   console.log("Asking the content writer to draft the post...");
-  const writerUserMessage = `Write the full blog post in Markdown, based on this brief:
+  let writerUserMessage = `Write the full blog post in Markdown, based on this brief:
 
 ${topic}
 
@@ -331,6 +338,20 @@ ${sourceContext}
 Do not generate a "You May Also Like" section at all, it's disabled for now, skip straight from FAQs to Sources.
 
 Also, more generally: never link to any reslink.org page you haven't been explicitly given a real URL for anywhere in this document, demo pages, resource downloads, or anything else, describe it in plain text with no link instead.`;
+
+  // Temporary A/B test (not a permanent behavior): comparing the existing
+  // "one subtle sentence" brand mention rule against a short dedicated
+  // closing section, to see which correlates with better engagement once
+  // there's a week of Search Console data to check it against. Randomized
+  // per run, 50/50. Remove this block and the instruction override below
+  // once the test concludes and a winner is picked.
+  const brandMentionVariant = Math.random() < 0.5 ? "subtle" : "dedicated_section";
+  const brandMentionOverride =
+    brandMentionVariant === "subtle"
+      ? `\n\nBRAND MENTION for this post: follow the standard rule from your instructions exactly, one subtle sentence woven into a real section, not a standalone block.`
+      : `\n\nBRAND MENTION for this post, TEMPORARY OVERRIDE for this run only: instead of a single woven sentence, write a short dedicated closing paragraph (2-4 sentences, no separate H2 heading, just its own paragraph placed near the end before FAQs) connecting the blog's topic to a real Reslink capability. Still no invented CTA links, only use a URL if one has been explicitly provided to you elsewhere in this brief.`;
+  console.log(`Brand mention A/B test: this post will use the "${brandMentionVariant}" variant.`);
+  writerUserMessage += brandMentionOverride;
 
   // Rough count for retry purposes, lint.js does the precise, authoritative
   // count later, this is just deciding whether to burn a retry attempt.
@@ -374,7 +395,7 @@ Every addition must be specific to this exact topic, not generic padding. Output
     const candidate = await callOpenRouter(writerPrompt, message);
     const hasH1 = /^#\s+.+/m.test(candidate);
     const wordCount = roughWordCount(candidate);
-    const longEnough = wordCount >= 1900; // small grace margin under lint's hard 2000 floor
+    const longEnough = wordCount >= 2100; // safety margin above lint.js's real 2000-word hard floor, this count is a rougher estimate than lint's
 
     if (hasH1 && longEnough) {
       rawMarkdown = candidate;
@@ -633,7 +654,7 @@ Every addition must be specific to this exact topic, not generic padding. Output
     featured: false,
     estimatedReadTime: Math.max(1, Math.round(lint.wordCount / 200)),
     excerpt: meta.seoDescription || extractExcerpt(markdown), // required field, never left empty
-    author: { name: "Shashank", role: "Co-founder" },
+    author: { name: "Shashank", role: "Founder" },
     // Hardcoded to your "Solar In 2026" category's real document ID, taken
     // from the Energy Storage Summit post you shared. Every post gets the
     // same category for now. Once you send the full category list, this
@@ -720,7 +741,7 @@ Every addition must be specific to this exact topic, not generic padding. Output
   const created = await sanity.create(doc);
 
   await alert(
-    `New blog post published: "${title}" (Sanity doc: ${created._id}, ${lint.wordCount} words)`
+    `New blog post published: "${title}" (Sanity doc: ${created._id}, ${lint.wordCount} words, brand mention variant: ${brandMentionVariant})`
   );
   console.log("Done.");
 }

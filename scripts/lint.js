@@ -8,13 +8,20 @@
 // keywords, etc). Nothing here needs an API key, it's pure text checks.
 
 const CONFIG = {
-  // Below this, something is genuinely broken, not just short, a 74-word
-  // non-answer, a reasoning trace, empty sections. Real block.
-  hardMinWords: 800,
-  // The actual goal. Missing this doesn't block publish, a complete,
-  // well-structured post at 1800 words is real and usable, just gets a
+  // Raised from 800 to 2000. The 800 floor was only catching genuinely
+  // broken output (a 74-word non-answer, a reasoning trace, empty
+  // sections), a real 1500-1900 word post sailed straight through as a
+  // "publish anyway" warning instead of being blocked, which is exactly
+  // why posts were landing around 1500 words in practice despite a
+  // 2000-word target. This is now the actual enforced floor, not just
+  // the aspiration.
+  hardMinWords: 2000,
+  // A stretch goal above the hard floor, matches the low end of
+  // topic-scanner.md's WORD_COUNT_TARGET range (2200-3400 depending on
+  // category). Missing this doesn't block publish, a complete,
+  // well-structured post at 2050 words is real and usable, just gets a
   // warning noted instead of being thrown away.
-  targetWords: 2000,
+  targetWords: 2200,
   maxWords: 4000,
   // Add your own keyword clusters here if you want the lint to check for
   // at least one match per cluster. Leave empty to skip this check.
@@ -77,15 +84,15 @@ export async function runLint(markdown) {
   const errors = [];
   const warnings = [];
 
-  // 1. Word count: hard block only below hardMinWords (genuinely broken
-  // output), a warning, not a block, for anything between that floor and
-  // the real target. A complete post that's merely shorter than ideal
-  // still gets published, it's not the same problem as a 74-word non-answer.
+  // 1. Word count: hard block below hardMinWords, this is now the real
+  // ~2000-word requirement, not just a genuinely-broken-output check. A
+  // warning, not a block, for anything between the hard floor and the
+  // stretch target.
   const wordCount = countWords(markdown);
   if (wordCount < CONFIG.hardMinWords) {
-    errors.push(`Too short: ${wordCount} words (hard minimum ${CONFIG.hardMinWords}, likely broken/incomplete output)`);
+    errors.push(`Too short: ${wordCount} words (hard minimum ${CONFIG.hardMinWords})`);
   } else if (wordCount < CONFIG.targetWords) {
-    warnings.push(`Under target: ${wordCount} words (aiming for ${CONFIG.targetWords}+), publishing anyway, this is a real, usable post, just shorter than ideal`);
+    warnings.push(`Under stretch target: ${wordCount} words (aiming for ${CONFIG.targetWords}+), publishing anyway, this clears the real minimum, just shorter than ideal`);
   }
   if (wordCount > CONFIG.maxWords) {
     warnings.push(`Longer than usual: ${wordCount} words (max ${CONFIG.maxWords})`);

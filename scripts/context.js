@@ -264,6 +264,81 @@ export async function tavilyExtract(urls) {
   };
 }
 
+// ---- 4c. Trusted-source filtering, code-level not prompt-only ------------
+//
+// content-writer.md already has a sourcing hierarchy (primary/government
+// first, named trade press second, an explicit never-use list third), but
+// that's a prompt-only rule, and the established pattern in this pipeline
+// is that prompt-only rules don't reliably hold once a failure mode has
+// shown up twice (word count, citation formatting). Rather than trust the
+// model to self-police which of the Jina-fetched sources are credible,
+// this filters them in code before they're ever handed over: an untrusted
+// domain is treated exactly like a failed fetch, the writer softens or
+// drops whatever claim depended on it, per its own existing sourcing
+// rules. Less information published beats false information published.
+//
+// This list is deliberately maintained here, not regenerated from
+// content-writer.md's prose list, so it can be tightened or extended
+// independently. Add a domain any time a new legitimate primary/trade
+// source needs to be trusted.
+const TRUSTED_SOURCE_DOMAINS = [
+  // Established trade press (mirrors content-writer.md's named list)
+  "pv-tech.org",
+  "pv-magazine.com",
+  "pv-magazine-india.com",
+  "mercomindia.com",
+  "energetica-india.net",
+  "solarpowerportal.co.uk",
+  "philstar.com",
+  "bangkokpost.com",
+  "cleanenergywire.org",
+  "energy-storage.news",
+  "saurenergy.com",
+  "solarquarter.com",
+  "renewablewatch.in",
+  "eqmagpro.com",
+  "tilleke.com",
+  "hunton.com",
+];
+
+// Any hostname ending in one of these suffixes is treated as a government
+// or primary regulatory source and trusted automatically, so this list
+// doesn't need every individual ministry/DISCOM domain added by hand.
+const TRUSTED_GOV_SUFFIXES = [".gov.in", ".nic.in", ".gov", ".gov.uk"];
+
+function isTrustedSourceDomain(url) {
+  let hostname;
+  try {
+    hostname = new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return false; // unparseable URL, never trust it
+  }
+  if (TRUSTED_GOV_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) return true;
+  return TRUSTED_SOURCE_DOMAINS.some(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+  );
+}
+
+// Applies the trusted-domain check to a jinaFetchMany() result. Anything
+// from an untrusted domain moves from `results` into `failed`, so every
+// downstream consumer (formatExtractedContentForPrompt,
+// restrictSourcesToVerified, replaceOriginalUrlsWithResolved) treats it
+// exactly like a source that simply couldn't be fetched, no separate
+// code path needed anywhere else.
+export function filterTrustedSources(extracted) {
+  const trustedResults = [];
+  const newlyUntrusted = [];
+  for (const r of extracted.results) {
+    if (isTrustedSourceDomain(r.url)) trustedResults.push(r);
+    else newlyUntrusted.push(r.originalUrl || r.url);
+  }
+  return {
+    results: trustedResults,
+    failed: [...extracted.failed, ...newlyUntrusted],
+    droppedForTrust: newlyUntrusted,
+  };
+}
+
 export function formatExtractedContentForPrompt(extracted) {
   let out = "";
   for (const r of extracted.results) {

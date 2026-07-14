@@ -70,7 +70,7 @@ IMPORTANT: everything in [BRACKETS] below describes what a section's job is, not
 [URGENCY/DEADLINE — H2, real topic-specific heading, e.g. "The October 1, 2026 Re-Certification Deadline EPCs Must Know"] — the specific timeline, policy analysis, specific dates. Never use a Markdown table for this. Your output format has no table block type, a table gets flattened into a garbled list of loose words with no structure when it's converted. Use a bulleted list instead: `- **[Date]:** [Milestone]. EPC action: [what to do].` One bullet per date. Double-check every bolded label has real spaces in it exactly where a human would put them: "July 4, 2026," never "July42026," "Company A," never "CompanyA." This has happened before, check it specifically before finishing.
 [ACTION CHECKLIST — H2, real topic-specific heading built around "What EPCs Must Do Now"] — 4-6 bulleted, bolded-lead-in action items
 [SUPPORTING INFO — H2, real topic-specific heading] — additional practical detail. If it breaks into sub-points, same H4-with-bold-label format as categorization above, `#### **Label**`, never H3.
-[FREQUENTLY ASKED QUESTIONS — H2, use this exact heading text, not "FAQ"] — 5-6 questions, numbered Q1 through Q6
+[FREQUENTLY ASKED QUESTIONS — H2, use this exact heading text, not "FAQ"] — 7-9 questions, numbered Q1 through Q9, each with a genuinely substantive, specific answer, not a one- or two-sentence restatement
 [SOURCES]
 [FACT-CHECK PANEL] — internal only, not visible to readers
 
@@ -142,9 +142,10 @@ STEP 5 — SECTION-SPECIFIC RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 FAQs
-— 5 to 6 questions. Numbered Q1 through Q6 (or Q5, whichever count you land on).
-— Questions must match real search queries — use PAA_QUESTIONS from the brief as the starting point.
+— 7 to 9 questions. Numbered Q1 through Q9.
+— Questions must match real search queries — use PAA_QUESTIONS from the brief as the starting point. If PAA_QUESTIONS has fewer than 7 items, add further genuinely distinct questions a skeptical, experienced EPC would actually ask about this exact topic, not generic filler questions that could apply to any post.
 — Every FAQ answer must be independently sourceable. Do not repeat claims in FAQs that are not sourced.
+— Each answer must be substantive: 3-6 sentences, citing specific figures, named institutions, procedural detail, or amounts wherever the sourced material supports it. A one- or two-sentence answer that just restates the question in different words, with no new specific information, fails this rule the same way an unsourced claim does. If you cannot write a genuinely substantive, sourced answer for a question, replace it with a different question you can answer properly rather than publishing a thin one.
 — Format each FAQ as: a bolded, numbered question on its own line ("#### **Q1. [question]**"), followed by the plain-text answer as a paragraph beneath it. No accordion, no collapsible behavior, no HTML, this is a formatting job for the site template, not for you.
 — Primary keyword must appear in at least one FAQ question.
 
@@ -238,7 +239,7 @@ Before outputting the final Markdown, run through this checklist. Do not deliver
 □ Every source in the Sources section was actually fetched, not written from memory or invented
 □ Fact-check panel covers every claim (not selected highlights), and is wrapped in its own comment at the very end
 □ Update badge is present if blog covers recent developments (single consolidated badge)
-□ FAQ section has 5-6 numbered questions (Q1, Q2...), bold question / plain answer, no HTML
+□ FAQ section has 7-9 numbered questions (Q1 through Q9), each answer 3-6 sentences with specific sourced detail, not a generic restatement of the question, bold question / plain answer, no HTML
 □ One or two EPC blockquotes are present, placed where they're actually useful, not just at a fixed spot
 □ Categorization section uses H4 subheadings for its segments
 □ The Reslink mention is one woven sentence inside a real section, not a standalone block
