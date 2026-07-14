@@ -387,6 +387,25 @@ export function parseMetaPanel(rawMarkdown) {
   return { seoTitle, seoDescription, tags };
 }
 
+// Meta description hard cap: content-writer.md asks for 140-150 characters,
+// but a prompt-only instruction has a track record of not holding on its
+// own (same lesson as word-count enforcement). This enforces the ceiling
+// deterministically by truncating at the last word boundary before the max,
+// never mid-word. The floor (140) can't be safely auto-fixed without
+// inventing filler text, so a too-short result is only flagged, not padded.
+export function enforceMetaDescriptionLength(description, minChars = 140, maxChars = 150) {
+  if (!description) return { text: description, truncated: false, tooShort: false };
+  let text = description.trim();
+  let truncated = false;
+  if (text.length > maxChars) {
+    const slice = text.slice(0, maxChars);
+    const lastSpace = slice.lastIndexOf(" ");
+    text = (lastSpace > minChars ? slice.slice(0, lastSpace) : slice).trim().replace(/[.,;:]+$/, "");
+    truncated = true;
+  }
+  return { text, truncated, tooShort: text.length < minChars };
+}
+
 export function extractExcerpt(markdown, maxLen = 200) {
   // content-writer.md now outputs TL;DR as a bare paragraph, no heading,
   // just starting with the literal text "TL;DR:", matching your real
@@ -598,6 +617,23 @@ export function fixDurationSpacing(markdown) {
   return { cleaned, fixedCount };
 }
 
+// Categorization/supporting-info subheadings must be H4 with a bolded
+// label ("#### **Label**"), never a bare H3, per content-writer.md.
+// A prompt-only rule for this has drifted before (fixed manually once
+// already), so this backstops it deterministically. Narrow on purpose:
+// only touches a line that is *exactly* "### **Label**" with nothing else
+// on it, the same shape as a legitimate H4 label just at the wrong
+// heading level, so it won't touch a real H3 used for something else or
+// a bolded phrase inside normal body text.
+export function fixBoldedH3Headings(markdown) {
+  let fixedCount = 0;
+  const cleaned = markdown.replace(/^###\s+(\*\*[^*\n]+\*\*)\s*$/gm, (match, label) => {
+    fixedCount++;
+    return `#### ${label}`;
+  });
+  return { cleaned, fixedCount };
+}
+
 // ---- 7. Cover image: extract the prompt, generate it, upload it ---------
 //
 // content-writer.md already outputs two hero image prompt options inside
@@ -618,6 +654,41 @@ export function extractHeroImagePrompt(rawMarkdown) {
 
   // Fallback: whatever's there, capped to a sane length.
   return imgSection[1].replace(/[[\]]/g, "").trim().slice(0, 400) || null;
+}
+
+// Fallback search phrases per market, used when extractHeroImagePrompt
+// returns nothing usable, or when the query safeguard below decides what
+// the model produced is too bare to trust. Specific cities/landmarks
+// instead of a bare country name, a bare country or region name (most of
+// all "EU", "USA", or the country name alone) resolves to a flag graphic
+// on stock photo search almost every time.
+const MARKET_IMAGE_FALLBACKS = {
+  "India": "Mumbai skyline rooftops",
+  "United States": "American city skyline aerial",
+  "European Union": "Berlin city skyline architecture",
+  "UK": "London architecture skyline",
+  "Philippines": "Manila Bay skyline",
+  "Thailand": "Bangkok skyline Chao Phraya river",
+  "South Africa": "Cape Town Table Mountain",
+  "Australia": "Australian city skyline",
+};
+
+// Backstop for the flag-image problem: if the query the model produced is
+// empty, is just the bare market/country name, or literally mentions
+// "flag", swap in a known-good landmark/skyline search phrase for that
+// market instead. This runs after content-writer.md's own instructions,
+// which should mostly prevent this, but a code-level backstop doesn't
+// depend on the model reliably following a prompt rule every single time.
+export function safeguardImageQuery(query, targetMarket) {
+  const trimmed = (query || "").trim();
+  const isBareOrFlagLike =
+    !trimmed ||
+    Object.keys(MARKET_IMAGE_FALLBACKS).some((m) => trimmed.toLowerCase() === m.toLowerCase()) ||
+    /\bflag\b/i.test(trimmed);
+  if (isBareOrFlagLike && MARKET_IMAGE_FALLBACKS[targetMarket]) {
+    return MARKET_IMAGE_FALLBACKS[targetMarket];
+  }
+  return trimmed || MARKET_IMAGE_FALLBACKS[targetMarket] || "solar energy commercial building";
 }
 
 export async function generateImage(prompt, { width = 1280, height = 720 } = {}) {
@@ -674,8 +745,12 @@ export async function uploadImageToSanity(sanityClient, buffer, filename) {
 // from Sanity's media library.
 export const PROMO_IMAGE_ASSET_ID = "image-4978883d208c7a22ca5c7cf812912b2eb79fa955-8000x4500-png";
 export const PROMO_IMAGE_LINK = "https://www.reslink.org/demo/";
+// Real Sanity schema, confirmed from a live document: the image block's
+// link field is a nested object with "href" and "openInNewTab", not a
+// bare string. Alt text is required by the schema (Studio flags it with
+// a warning icon when empty), so it's set here too, fixed for every post
+// since it's the same image every time.
 export const PROMO_IMAGE_ALT = "Reslink 3D solar design software";
-export const PROMO_IMAGE_LINK = "https://www.reslink.org/demo/";
 
 // ---- 7b. Real stock photo search, now the primary path -------------------
 //
