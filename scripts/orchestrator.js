@@ -375,8 +375,8 @@ Also, more generally: never link to any reslink.org page you haven't been explic
       // note attached, editing something in front of the model is a much
       // more reliable task than hoping a second full generation lands
       // longer by chance.
-      const shortfall = 2000 - previousWordCount;
-      message = `Here is a draft you wrote for this brief, ${previousWordCount} words, ${shortfall} words short of the 2000-word floor:
+      const shortfall = 2200 - previousWordCount;
+      message = `Here is a draft you wrote for this brief, ${previousWordCount} words, ${shortfall} words short of the 2200-word target:
 
 ${previousDraft}
 
@@ -396,7 +396,7 @@ Every addition must be specific to this exact topic, not generic padding. Output
     const candidate = await callOpenRouter(writerPrompt, message);
     const hasH1 = /^#\s+.+/m.test(candidate);
     const wordCount = roughWordCount(candidate);
-    const longEnough = wordCount >= 2100; // safety margin above lint.js's real 2000-word hard floor, this count is a rougher estimate than lint's
+    const longEnough = wordCount >= 2100; // aiming near the 2200-word target before giving up on retries; lint.js's real accept floor is a more lenient 1700
 
     if (hasH1 && longEnough) {
       rawMarkdown = candidate;
@@ -413,7 +413,7 @@ Every addition must be specific to this exact topic, not generic padding. Output
 
     const reason = !hasH1
       ? "no H1 found, likely a reasoning trace that never finished"
-      : `too short (about ${wordCount} words, need 2000+)`;
+      : `short of the depth target (about ${wordCount} words, aiming for 2200+, will still publish at 1700+)`;
     console.log(
       `Content writer output rejected before linting: ${reason} (attempt ${attempt}/${MAX_WRITER_ATTEMPTS})${
         attempt < MAX_WRITER_ATTEMPTS ? ", retrying..." : ""

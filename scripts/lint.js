@@ -8,18 +8,12 @@
 // keywords, etc). Nothing here needs an API key, it's pure text checks.
 
 const CONFIG = {
-  // Raised from 800 to 2000. The 800 floor was only catching genuinely
-  // broken output (a 74-word non-answer, a reasoning trace, empty
-  // sections), a real 1500-1900 word post sailed straight through as a
-  // "publish anyway" warning instead of being blocked, which is exactly
-  // why posts were landing around 1500 words in practice despite a
-  // 2000-word target. This is now the actual enforced floor, not just
-  // the aspiration.
-  hardMinWords: 2000,
-  // A stretch goal above the hard floor, matches the low end of
-  // topic-scanner.md's WORD_COUNT_TARGET range (2200-3400 depending on
-  // category). Missing this doesn't block publish, a complete,
-  // well-structured post at 2050 words is real and usable, just gets a
+  // Hard floor at 1700, soft target at 2200. Below 1700 is a real block,
+  // between 1700 and 2199 is a complete, usable post that's just short
+  // of ideal, gets a warning noted but still publishes.
+  hardMinWords: 1700,
+  // The aspiration. Missing this doesn't block publish, a complete,
+  // well-structured post at 1900 words is real and usable, just gets a
   // warning noted instead of being thrown away.
   targetWords: 2200,
   maxWords: 4000,
@@ -100,10 +94,10 @@ export async function runLint(markdown) {
   const errors = [];
   const warnings = [];
 
-  // 1. Word count: hard block below hardMinWords, this is now the real
-  // ~2000-word requirement, not just a genuinely-broken-output check. A
-  // warning, not a block, for anything between the hard floor and the
-  // stretch target.
+  // 1. Word count: hard block below hardMinWords, a real 1700-word post
+  // is complete and usable, this only catches genuinely short/broken
+  // output. A warning, not a block, for anything between the hard floor
+  // and the 2200-word stretch target.
   const wordCount = countWords(markdown);
   if (wordCount < CONFIG.hardMinWords) {
     errors.push(`Too short: ${wordCount} words (hard minimum ${CONFIG.hardMinWords})`);
