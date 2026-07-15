@@ -24,6 +24,21 @@ on:
 permissions:
   contents: write # needed to commit the updated tracker file back to the repo
 
+# Real bug found in production: a manual trigger and a scheduled trigger
+# started ~14 minutes apart, well within a single run's ~6 minute
+# duration, and nothing stopped them running at the same time. Both read
+# the tracker before either had written back its own update, both picked
+# the same "next" topic, both published it independently, a real
+# duplicate live post as a result. This group ensures only one run of
+# this workflow executes at a time; a second trigger queues and waits for
+# the first to fully finish (including its tracker commit) rather than
+# running in parallel. cancel-in-progress: false because a queued run
+# should still happen, not be thrown away, it'll just correctly see the
+# updated tracker and move to the next topic once its turn comes.
+concurrency:
+  group: publish-value-topic
+  cancel-in-progress: false
+
 jobs:
   publish-value-topic:
     runs-on: ubuntu-latest
@@ -61,6 +76,14 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/value-topics-published.json
-          git diff --staged --quiet || git commit -m "Update value-topic tracker"
-          git diff --staged --quiet || git push
+          if [ -f data/value-topics-published.json ]; then
+            git add data/value-topics-published.json
+            if ! git diff --staged --quiet; then
+              git commit -m "Update value-topic tracker"
+              git push
+            else
+              echo "Tracker file present but unchanged, nothing to commit."
+            fi
+          else
+            echo "Tracker file doesn't exist on this run (expected if the pipeline failed before publishing anything). Nothing to commit, not an error."
+          fi
