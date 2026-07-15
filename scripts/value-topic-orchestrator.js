@@ -393,10 +393,28 @@ Output the complete expanded post, still following every rule from your instruct
   // back to publishing an unaudited draft. Skipping verification
   // silently would defeat the entire point of adding it. Same treatment
   // as a lint failure, alert, publish nothing, retry next scheduled run.
-  console.log("Running pre-publish audit (claim verification + competitor balance)...");
+  console.log("Running pre-publish audit (6 checks: truth, scope, currentness, wording, competitor balance, citation style)...");
   const auditPrompt = await fs.readFile("prompts/value-topic-audit.md", "utf8");
   const preAuditMarkdown = markdown;
   const preAuditWordCount = preAuditMarkdown.split(/\s+/).filter(Boolean).length;
+
+  // Real bug found in production: formal source titles ("U.S. Department
+  // of Energy - Solar Photovoltaic Performance and Efficiency Basics")
+  // dropped into sentences as inline citation text instead of natural
+  // prose, happening on nearly every sentence in one draft. Deliberately
+  // NOT auto-stripped here via regex, blind removal risks leaving broken
+  // grammar behind (the anchor text isn't always a clean sentence
+  // tail), that repair needs real language understanding, which is
+  // exactly what Check 6 in the audit prompt below does. This is a
+  // detector only, for visibility into whether the audit actually
+  // addressed what it found, logged before and after.
+  function countLongCitationAnchors(text) {
+    return (text.match(/\[[^\]]{45,}\]\(https?:\/\/[^\s)]+\)/g) || []).length;
+  }
+  const preAuditLongCitations = countLongCitationAnchors(preAuditMarkdown);
+  if (preAuditLongCitations > 0) {
+    console.log(`Found ${preAuditLongCitations} suspiciously long citation link(s) before audit (formal titles dropped in as inline text), watching whether Check 6 addresses these.`);
+  }
 
   const auditUserMessage = `TOPIC CONTEXT: "${topic.keyword}" (category: ${topic.category}, market: ${topic.market})
 
@@ -476,6 +494,11 @@ Apply all checks now. Output per your instructions.`;
     } else {
       console.log("Audit found no issues.");
     }
+  }
+
+  if (preAuditLongCitations > 0) {
+    const postAuditLongCitations = countLongCitationAnchors(markdown);
+    console.log(`Long citation link count: ${preAuditLongCitations} before audit -> ${postAuditLongCitations} after.`);
   }
 
   console.log("Running the lint / quality gate...");
