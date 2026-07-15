@@ -14,7 +14,15 @@
       "title": "Solar Subsidies Germany 2025 – What EPCs Need to Know in 2026",
       "sanityDocId": "HgdL5GYxyg8jyYyxR4Eyfl",
       "publishedAt": "2026-07-15T00:00:00.000Z",
-      "note": "Backfilled manually. Pipeline run succeeded and its own log showed a clean tracker commit (3ca33b4, '1 file changed, 7 insertions'), but that entry was not present in the repo afterward, root cause not yet confirmed, possibly two runs racing on the same commit. Verify in Sanity this doc ID is not duplicated before trusting this pipeline's tracking again."
+      "note": "Backfilled manually. Pipeline run succeeded and its own log showed a clean tracker commit (3ca33b4, '1 file changed, 7 insertions'), but that entry was not present in the repo afterward, root cause not confirmed for this one specifically."
+    },
+    {
+      "id": 3,
+      "keyword": "solar panel tilt angle and azimuth optimization guide",
+      "title": null,
+      "sanityDocId": null,
+      "publishedAt": "2026-07-15T00:00:00.000Z",
+      "note": "Backfilled manually. Two separate pipeline runs (manual #12 and scheduled #13, ~14 min apart, overlapping in execution) both independently picked and published this topic, real duplicate live posts on Sanity, confirmed. NEITHER run's tracker write persisted, root cause: concurrent execution, no lock existed at the time. Fixed going forward via a concurrency group added to publish-value-topics.yml. sanityDocId intentionally left null here, TWO live docs currently exist, update this field once one is kept and the other is removed from Sanity."
     }
   ]
 }
