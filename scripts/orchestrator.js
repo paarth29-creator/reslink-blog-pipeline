@@ -32,6 +32,7 @@ import {
   parseMetaPanel,
   enforceMetaDescriptionLength,
   extractExcerpt,
+  tldrWordCount,
   delinkUnverifiedReslinkLinks,
   removeYouMayAlsoLikeSection,
   fixSquishedDates,
@@ -362,6 +363,7 @@ Also, more generally: never link to any reslink.org page you haven't been explic
   const MAX_WRITER_ATTEMPTS = 3;
   let previousDraft = null;
   let previousWordCount = null;
+  let previousTldrWords = null;
 
   for (let attempt = 1; attempt <= MAX_WRITER_ATTEMPTS; attempt++) {
     let message;
@@ -376,15 +378,28 @@ Also, more generally: never link to any reslink.org page you haven't been explic
       // more reliable task than hoping a second full generation lands
       // longer by chance.
       const shortfall = 2200 - previousWordCount;
+      const expansionTasks = [
+        `Definition/context section: add 1-2 more paragraphs, real-world context, a relevant historical data point, or a comparison to how this worked before, sourced the same way as the rest of the post, not filler.`,
+        `One of the categorization or supporting-info subsections (H4s): pick whichever one has the least depth right now, add 1-2 more paragraphs covering a practical detail an EPC would actually need, an edge case, a common complication, something concrete.`,
+        `FAQ section: add one more genuinely useful question a skeptical EPC reader would actually ask, with a full, sourced answer, not a one-liner.`,
+      ];
+      // TL;DR length is checked separately from overall word count (see
+      // below), a post can clear the depth target while still shipping a
+      // TL;DR that's only a sentence or two, well under the 90-110 word
+      // target. Only added to the retry instructions when it's actually
+      // the problem, no reason to touch a TL;DR that's already fine.
+      if (previousTldrWords !== null && previousTldrWords < 70) {
+        expansionTasks.push(
+          `The TL;DR paragraph itself: it's currently only about ${previousTldrWords} words, well under the 90-110 word target. Rewrite it as a genuine, complete 4-6 sentence summary, not a one-line teaser. Keep it a plain paragraph starting with "TL;DR:", no heading, no links, no bold, no em-dashes.`
+        );
+      }
       message = `Here is a draft you wrote for this brief, ${previousWordCount} words, ${shortfall} words short of the 2200-word target:
 
 ${previousDraft}
 
-Do not rewrite this from scratch. Do not change the title, the central claim, or the sources. Expand it by adding real content in exactly these three places:
+Do not rewrite this from scratch. Do not change the title, the central claim, or the sources. Expand it by adding real content in exactly these places:
 
-1. Definition/context section: add 1-2 more paragraphs, real-world context, a relevant historical data point, or a comparison to how this worked before, sourced the same way as the rest of the post, not filler.
-2. One of the categorization or supporting-info subsections (H4s): pick whichever one has the least depth right now, add 1-2 more paragraphs covering a practical detail an EPC would actually need, an edge case, a common complication, something concrete.
-3. FAQ section: add one more genuinely useful question a skeptical EPC reader would actually ask, with a full, sourced answer, not a one-liner.
+${expansionTasks.map((t, i) => `${i + 1}. ${t}`).join("\n")}
 
 Every addition must be specific to this exact topic, not generic padding. Output the complete expanded post, still following every rule from your instructions (structure, sourcing, no em-dashes, no tables, meta panel, fact-check panel, no inline citation brackets).`;
     } else {
@@ -397,8 +412,16 @@ Every addition must be specific to this exact topic, not generic padding. Output
     const hasH1 = /^#\s+.+/m.test(candidate);
     const wordCount = roughWordCount(candidate);
     const longEnough = wordCount >= 2100; // aiming near the 2200-word target before giving up on retries; lint.js's real accept floor is a more lenient 1700
+    const tldrWords = tldrWordCount(candidate);
+    // Real, separate check from overall length: the prompt's 90-110 word
+    // TL;DR target doesn't reliably hold on its own, a full-length post
+    // can still ship with a one-line TL;DR. 70 is a lenient real-content
+    // threshold, not a rubber stamp of the actual 90-110 target, enough
+    // to catch a genuinely thin TL;DR without over-triggering retries on
+    // one that's merely a little short.
+    const tldrLongEnough = tldrWords >= 70;
 
-    if (hasH1 && longEnough) {
+    if (hasH1 && longEnough && tldrLongEnough) {
       rawMarkdown = candidate;
       break;
     }
@@ -407,13 +430,17 @@ Every addition must be specific to this exact topic, not generic padding. Output
     if (hasH1) {
       previousDraft = candidate;
       previousWordCount = wordCount;
+      previousTldrWords = tldrWords;
     } else {
       previousDraft = null; // garbage output, nothing worth expanding next round
+      previousTldrWords = null;
     }
 
-    const reason = !hasH1
-      ? "no H1 found, likely a reasoning trace that never finished"
-      : `short of the depth target (about ${wordCount} words, aiming for 2200+, will still publish at 1700+)`;
+    const reasons = [];
+    if (!hasH1) reasons.push("no H1 found, likely a reasoning trace that never finished");
+    if (hasH1 && !longEnough) reasons.push(`short of the depth target (about ${wordCount} words, aiming for 2200+, will still publish at 1700+)`);
+    if (hasH1 && !tldrLongEnough) reasons.push(`TL;DR too short (about ${tldrWords} words, needs 90-110)`);
+    const reason = reasons.join("; ");
     console.log(
       `Content writer output rejected before linting: ${reason} (attempt ${attempt}/${MAX_WRITER_ATTEMPTS})${
         attempt < MAX_WRITER_ATTEMPTS ? ", retrying..." : ""
@@ -635,8 +662,15 @@ Every addition must be specific to this exact topic, not generic padding. Output
   // warning icon when empty), set here to a fixed value since it's the
   // same image on every post.
   try {
+    // Only real prose paragraphs count here, not list items. A bulleted
+    // list (the urgency/deadline section's "- **Date:** Milestone" style,
+    // for instance) converts to the same _type: "block", style: "normal"
+    // shape as a real paragraph, just with a listItem property set. That
+    // was letting a list appearing before the 3rd real paragraph count
+    // toward the total, inserting the promo image too early, mid-list
+    // rather than after genuine flowing prose.
     const paragraphIndices = contentBlocks
-      .map((b, i) => (b._type === "block" && b.style === "normal" ? i : -1))
+      .map((b, i) => (b._type === "block" && b.style === "normal" && !b.listItem ? i : -1))
       .filter((i) => i !== -1);
 
     if (paragraphIndices.length > 0) {

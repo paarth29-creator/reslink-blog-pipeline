@@ -454,9 +454,17 @@ export function parseMetaPanel(rawMarkdown) {
 
   const seoTitle = get("Meta Title");
   const seoDescription = get("Meta Description");
-  const tagsRaw = get("Tags");
+  // The meta panel format is "Tags: [tag1, tag2, tag3]", the brackets are
+  // part of the literal spec, not something the split()/trim() below ever
+  // accounted for, so the first tag kept a leading "[" and the last kept
+  // a trailing "]". Stripped here before splitting, plus a per-tag safety
+  // strip in case a stray bracket ends up somewhere else in the list.
+  const tagsRaw = get("Tags")?.replace(/^\[+/, "").replace(/\]+$/, "");
   const tags = tagsRaw
-    ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean)
+    ? tagsRaw
+        .split(",")
+        .map((t) => t.trim().replace(/^\[+|\]+$/g, "").trim())
+        .filter(Boolean)
     : [];
 
   return { seoTitle, seoDescription, tags };
@@ -479,6 +487,23 @@ export function enforceMetaDescriptionLength(description, minChars = 140, maxCha
     truncated = true;
   }
   return { text, truncated, tooShort: text.length < minChars };
+}
+
+// TL;DR-specific extraction, separate from extractExcerpt (which truncates
+// for the Sanity excerpt field). This one returns the full TL;DR text
+// untruncated, so its real word count can be checked. content-writer.md
+// asks for 90-110 words, a prompt-only target that doesn't reliably hold,
+// same failure mode word count and citation formatting had before they
+// got real code backstops.
+export function extractTldrText(markdown) {
+  const tldrMatch = markdown.match(/(?:\*\*)?TL\s*;?\s*DR:?(?:\*\*)?\s*([\s\S]*?)(?:\n\n|\n##|$)/i);
+  if (!tldrMatch) return "";
+  return tldrMatch[1].replace(/[#*_>`]/g, "").replace(/\s+/g, " ").trim();
+}
+
+export function tldrWordCount(markdown) {
+  const text = extractTldrText(markdown);
+  return text ? text.split(/\s+/).filter(Boolean).length : 0;
 }
 
 export function extractExcerpt(markdown, maxLen = 200) {
@@ -595,7 +620,14 @@ export function restrictAllLinksToVerified(markdown, verifiedUrls) {
 
 export function restrictSourcesToVerified(markdown, verifiedUrls) {
   const verifiedNormalized = new Set(verifiedUrls.map(normalizeUrl));
-  const sectionMatch = markdown.match(/(#{2,3}\s*Sources\s*\n+)([\s\S]*?)(?=\n#{1,3}\s|$)/i);
+  // Primarily matches "Sources" per content-writer.md's explicit rule,
+  // but tolerates a few real variants seen in production (a renamed
+  // heading like "Resources & Contacts") as a defensive backup, so this
+  // check doesn't silently no-op just because the model missed the
+  // exact-heading-text instruction on a given run.
+  const sectionMatch = markdown.match(
+    /(#{2,3}\s*(?:Sources|References|Resources(?:\s*(?:&|and)?\s*Contacts)?)\s*\n+)([\s\S]*?)(?=\n#{1,3}\s|$)/i
+  );
   if (!sectionMatch) return { cleaned: markdown, removedCount: 0, sectionEmpty: false };
 
   const [fullMatch, heading, body] = sectionMatch;
