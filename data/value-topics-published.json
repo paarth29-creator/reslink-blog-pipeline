@@ -23,6 +23,13 @@
       "sanityDocId": "JLTwtMg3RIEU2HhsGUa5Wo",
       "publishedAt": "2026-07-15T00:00:00.000Z",
       "note": "Resolved. Three separate pipeline runs ended up publishing this topic during a race-condition window (before the concurrency lock and this backfill both landed): two were manually deleted, this doc ID is the one kept. Root cause fixed via a concurrency group in publish-value-topics.yml, confirmed no longer possible for two runs to execute in parallel going forward."
+    },
+    {
+      "id": 4,
+      "keyword": "solar panel efficiency guide",
+      "title": "Solar Panel Efficiency Guide for EPCs in 2026",
+      "sanityDocId": "JLTwtMg3RIEU2HhsGUy9IE",
+      "publishedAt": "2026-07-15T11:58:55.210Z"
     }
   ]
 }
