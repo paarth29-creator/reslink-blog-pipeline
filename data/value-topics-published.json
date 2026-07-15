@@ -1,0 +1,12 @@
+{
+  "published": [
+    {
+      "id": 1,
+      "keyword": "solar proposal design guide",
+      "title": null,
+      "sanityDocId": null,
+      "publishedAt": "2026-07-15T00:00:00.000Z",
+      "note": "SKIPPED, not published. Two consecutive lint failures (1733 and 1885 words, both under the 2000 floor). Likely a sourcing-depth ceiling for this topic under the 'business' category's trusted-domain list, not a transient error. Revisit manually: either expand CATEGORY_DOMAIN_MAP.business in value-topic-search.js and retry, or write this one directly."
+    }
+  ]
+}
