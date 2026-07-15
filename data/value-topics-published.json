@@ -20,9 +20,9 @@
       "id": 3,
       "keyword": "solar panel tilt angle and azimuth optimization guide",
       "title": null,
-      "sanityDocId": null,
+      "sanityDocId": "JLTwtMg3RIEU2HhsGUa5Wo",
       "publishedAt": "2026-07-15T00:00:00.000Z",
-      "note": "Backfilled manually. Two separate pipeline runs (manual #12 and scheduled #13, ~14 min apart, overlapping in execution) both independently picked and published this topic, real duplicate live posts on Sanity, confirmed. NEITHER run's tracker write persisted, root cause: concurrent execution, no lock existed at the time. Fixed going forward via a concurrency group added to publish-value-topics.yml. sanityDocId intentionally left null here, TWO live docs currently exist, update this field once one is kept and the other is removed from Sanity."
+      "note": "Resolved. Three separate pipeline runs ended up publishing this topic during a race-condition window (before the concurrency lock and this backfill both landed): two were manually deleted, this doc ID is the one kept. Root cause fixed via a concurrency group in publish-value-topics.yml, confirmed no longer possible for two runs to execute in parallel going forward."
     }
   ]
 }
