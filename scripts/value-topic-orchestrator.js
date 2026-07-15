@@ -49,7 +49,7 @@ import {
 } from "./context.js";
 import { VALUE_TOPICS } from "./value-topics.js";
 import { gatherEvergreenSourceContext, gatherRecencyCheck } from "./value-topic-search.js";
-import { buildBrief } from "./value-topic-brief.js";
+import { buildBrief, formatRecencyDevelopments } from "./value-topic-brief.js";
 import { pickNextUnpublishedTopic, markTopicPublished } from "./value-topic-tracker.js";
 import { RESLINK_FACTS } from "./value-topic-reslink-context.js";
 
@@ -398,7 +398,9 @@ Output the complete expanded post, still following every rule from your instruct
   const preAuditMarkdown = markdown;
   const preAuditWordCount = preAuditMarkdown.split(/\s+/).filter(Boolean).length;
 
-  const auditUserMessage = `DRAFT TO AUDIT:
+  const auditUserMessage = `TOPIC CONTEXT: "${topic.keyword}" (category: ${topic.category}, market: ${topic.market})
+
+DRAFT TO AUDIT:
 
 ${preAuditMarkdown}
 
@@ -408,9 +410,12 @@ ${factCheckComment ? factCheckComment.replace(/<!--|-->/g, "").trim() : "(none f
 REAL FETCHED SOURCE TEXT (the actual content the writer was given, check every claim against this, not against what the draft merely attributes to a source):
 ${sourceContext.results.map((r) => `\n### Source: ${r.url}\n${r.content}\n`).join("")}
 
+RECENCY SEARCH RESULTS (for the Currentness check, real search run separately for this topic, not the same as the sources above):
+${formatRecencyDevelopments(recencyResults)}
+
 ${RESLINK_FACTS}
 
-Apply both checks now. Output the complete draft per your instructions.`;
+Apply all checks now. Output per your instructions.`;
 
   let auditedRaw;
   try {
@@ -418,6 +423,23 @@ Apply both checks now. Output the complete draft per your instructions.`;
   } catch (err) {
     await alert(
       `Value-topic pipeline: pre-publish audit call itself failed, nothing published (publishing an unaudited draft was not an option). Topic: id ${topic.id}, "${topic.keyword}". Error: ${err.message}`
+    );
+    process.exit(1);
+  }
+
+  // Check the critical-block verdict FIRST, before any other parsing.
+  // This is a fundamentally different outcome from a malformed audit
+  // response (handled below): here the audit did its job correctly and
+  // found something serious enough that no subtraction-only fix solves
+  // it. Falling back to the pre-audit draft in this case would publish
+  // exactly the thing that was just flagged as unsafe, so this must
+  // never reach that fallback path.
+  const blockMatch = auditedRaw.match(/AUDIT_VERDICT:\s*DO_NOT_PUBLISH[\s\S]*?REASON:\s*(.+)/i);
+  if (blockMatch) {
+    const reason = blockMatch[1].trim();
+    console.log(`Pre-publish audit blocked this post: ${reason}`);
+    await alert(
+      `Value-topic pipeline: pre-publish audit found a critical, unfixable-by-subtraction problem and blocked publishing. Topic: id ${topic.id}, "${topic.keyword}". Reason: ${reason}`
     );
     process.exit(1);
   }

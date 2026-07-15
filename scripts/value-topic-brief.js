@@ -92,7 +92,7 @@ function truncateTitle(keyword, maxChars = 55) {
   return capitalized.slice(0, maxChars - 3).trim() + "...";
 }
 
-function formatRecencyDevelopments(recencyResults) {
+export function formatRecencyDevelopments(recencyResults) {
   if (recencyResults === null) {
     return "NONE (recency search itself failed this run, see logs; treat as unchecked, not confirmed-absent, per the writer's own Step 1e requirement to run this check)";
   }
