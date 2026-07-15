@@ -302,9 +302,34 @@ const TRUSTED_SOURCE_DOMAINS = [
 ];
 
 // Any hostname ending in one of these suffixes is treated as a government
-// or primary regulatory source and trusted automatically, so this list
-// doesn't need every individual ministry/DISCOM domain added by hand.
-const TRUSTED_GOV_SUFFIXES = [".gov.in", ".nic.in", ".gov", ".gov.uk"];
+// or primary regulatory source and trusted automatically. Originally only
+// covered India/US/UK, a real gap: this pipeline serves 8 markets (India,
+// US, EU, UK, Philippines, Thailand, South Africa, Australia), and a
+// government source from any of the other 4 was silently getting dropped
+// as "untrusted" simply because its ccTLD wasn't on this list, not because
+// anything was actually wrong with it. Add a market here any time a new
+// government domain pattern needs covering.
+const TRUSTED_GOV_SUFFIXES = [
+  ".gov.in",
+  ".nic.in", // India
+  ".gov", // generic/US
+  ".gov.uk", // UK
+  ".gov.ph", // Philippines
+  ".go.th", // Thailand, note "go.th" not "gov.th"
+  ".gov.za", // South Africa
+  ".gov.au", // Australia
+  ".europa.eu", // EU-level institutions
+  // EU doesn't share one government domain pattern the way other markets
+  // do, each member state has its own. This is a starting set covering
+  // common markets, not exhaustive, add more as a real EU-market post
+  // surfaces a government source not covered here.
+  ".bund.de", // Germany (federal)
+  ".gouv.fr", // France
+  ".gob.es", // Spain
+  ".gov.it", // Italy
+  ".overheid.nl", // Netherlands
+  ".gov.pl", // Poland
+];
 
 function isTrustedSourceDomain(url) {
   let hostname;

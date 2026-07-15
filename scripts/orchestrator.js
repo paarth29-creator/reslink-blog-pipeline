@@ -437,7 +437,12 @@ Every addition must be specific to this exact topic, not generic padding. Output
     }
 
     const reasons = [];
-    if (!hasH1) reasons.push("no H1 found, likely a reasoning trace that never finished");
+    const isRefusal = !hasH1 && /\b(I'?m sorry|I can(?:not|'t))\b.{0,60}\b(can(?:not|'t)|unable to)\b/i.test(candidate);
+    if (isRefusal) {
+      reasons.push(`the model explicitly refused, citing insufficient sourcing, not a technical failure: "${candidate.slice(0, 150)}"`);
+    } else if (!hasH1) {
+      reasons.push("no H1 found, likely a reasoning trace that never finished");
+    }
     if (hasH1 && !longEnough) reasons.push(`short of the depth target (about ${wordCount} words, aiming for 2200+, will still publish at 1700+)`);
     if (hasH1 && !tldrLongEnough) reasons.push(`TL;DR too short (about ${tldrWords} words, needs 90-110)`);
     const reason = reasons.join("; ");
