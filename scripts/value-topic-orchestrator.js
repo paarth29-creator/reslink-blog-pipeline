@@ -232,7 +232,22 @@ Do not generate a "You May Also Like" section at all, it's disabled for now, ski
 
 Also, more generally: never link to any reslink.org page you haven't been explicitly given a real URL for anywhere in this document, demo pages, resource downloads, or anything else, describe it in plain text with no link instead.`;
 
-  const roughWordCount = (text) => text.replace(/[#*_>`[\]()-]/g, " ").split(/\s+/).filter(Boolean).length;
+  // Real bug found across two separate real runs (id 1 and id 2, both
+  // landing suspiciously close together at 1573-1885 words despite
+  // different topics/categories/source counts, the consistency was the
+  // tell). This rough count used to run on the RAW draft, meta panel and
+  // fact-check panel comments still included. The fact-check panel must
+  // cover every claim, "not a highlights reel" per content-writer.md's
+  // own rule, so it's genuinely substantial text, and it gets stripped
+  // out before the real lint count runs. Net effect: this check could
+  // see a draft as "long enough" and stop expanding, while the real,
+  // published-relevant word count (after stripping) came in meaningfully
+  // shorter. Stripping comments here first means this check now measures
+  // the same thing the real lint gate measures.
+  const roughWordCount = (text) => {
+    const withoutComments = text.replace(/<!--[\s\S]*?-->/g, " ");
+    return withoutComments.replace(/[#*_>`[\]()-]/g, " ").split(/\s+/).filter(Boolean).length;
+  };
 
   let rawMarkdown;
   const MAX_WRITER_ATTEMPTS = 3;
