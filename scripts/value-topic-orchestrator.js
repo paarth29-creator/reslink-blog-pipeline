@@ -51,6 +51,7 @@ import { VALUE_TOPICS } from "./value-topics.js";
 import { gatherEvergreenSourceContext, gatherRecencyCheck } from "./value-topic-search.js";
 import { buildBrief } from "./value-topic-brief.js";
 import { pickNextUnpublishedTopic, markTopicPublished } from "./value-topic-tracker.js";
+import { RESLINK_FACTS } from "./value-topic-reslink-context.js";
 
 // ---- Config, mirrors orchestrator.js's own values ------------------------
 
@@ -378,6 +379,82 @@ Output the complete expanded post, still following every rule from your instruct
   );
   markdown = sourcesRestrictedMarkdown;
   if (sourcesRemoved) console.log(`Removed ${sourcesRemoved} unverified source(s) from the Sources section.`);
+
+  // ---- Pre-publish audit: claim verification + competitor/Reslink balance ----
+  //
+  // Real justification for this, not a hypothetical: a prior run cited a
+  // "0.9 weighting factor" and "±12% market-premium volatility" as
+  // sourced from a real Clean Energy Wire article that, checked directly,
+  // never stated either figure. That's the exact failure this step
+  // exists to catch, independently, against the real fetched text, not
+  // the writer's own self-report.
+  //
+  // Fails CLOSED: if this call itself errors out, this does not fall
+  // back to publishing an unaudited draft. Skipping verification
+  // silently would defeat the entire point of adding it. Same treatment
+  // as a lint failure, alert, publish nothing, retry next scheduled run.
+  console.log("Running pre-publish audit (claim verification + competitor balance)...");
+  const auditPrompt = await fs.readFile("prompts/value-topic-audit.md", "utf8");
+  const preAuditMarkdown = markdown;
+  const preAuditWordCount = preAuditMarkdown.split(/\s+/).filter(Boolean).length;
+
+  const auditUserMessage = `DRAFT TO AUDIT:
+
+${preAuditMarkdown}
+
+WRITER'S OWN FACT-CHECK PANEL (a starting index, not proof, verify independently against the real fetched source text below):
+${factCheckComment ? factCheckComment.replace(/<!--|-->/g, "").trim() : "(none found in the raw draft)"}
+
+REAL FETCHED SOURCE TEXT (the actual content the writer was given, check every claim against this, not against what the draft merely attributes to a source):
+${sourceContext.results.map((r) => `\n### Source: ${r.url}\n${r.content}\n`).join("")}
+
+${RESLINK_FACTS}
+
+Apply both checks now. Output the complete draft per your instructions.`;
+
+  let auditedRaw;
+  try {
+    auditedRaw = await callOpenRouter(auditPrompt, auditUserMessage);
+  } catch (err) {
+    await alert(
+      `Value-topic pipeline: pre-publish audit call itself failed, nothing published (publishing an unaudited draft was not an option). Topic: id ${topic.id}, "${topic.keyword}". Error: ${err.message}`
+    );
+    process.exit(1);
+  }
+
+  const auditLogMatch = auditedRaw.match(/<!--\s*AUDIT:([\s\S]*?)-->/i);
+  const auditLog = auditLogMatch ? auditLogMatch[1].trim() : null;
+  const auditedMarkdown = auditedRaw.replace(/<!--\s*AUDIT:[\s\S]*?-->/i, "").trim();
+
+  const auditedWordCount = auditedMarkdown.split(/\s+/).filter(Boolean).length;
+  const auditHasH1 = /^#\s+.+/m.test(auditedMarkdown);
+  // Sanity check, not a stylistic nitpick: the audit prompt explicitly
+  // forbids adding new content, subtraction/correction only. A material
+  // word-count INCREASE is direct evidence that rule wasn't followed, so
+  // rather than trust it, fall back to the pre-audit draft and say so
+  // loudly. A small tolerance (+40 words) allows for minor rewording of
+  // a corrected sentence without false-triggering on that alone.
+  const auditGrewSuspiciously = auditedWordCount > preAuditWordCount + 40;
+
+  if (!auditHasH1 || auditGrewSuspiciously || !auditedMarkdown.trim()) {
+    const reason = !auditHasH1
+      ? "audit output lost the H1"
+      : !auditedMarkdown.trim()
+      ? "audit output was empty"
+      : `audit output grew from ${preAuditWordCount} to ${auditedWordCount} words, which the subtraction-only rule shouldn't allow`;
+    console.log(`Audit output failed its sanity check (${reason}), falling back to the pre-audit draft. This post is publishing WITHOUT the benefit of this audit pass.`);
+    await alert(
+      `Value-topic pipeline: pre-publish audit output was rejected by its own sanity check (${reason}) and the pre-audit draft was published instead, unaudited. Topic: id ${topic.id}, "${topic.keyword}". Worth a manual read of this specific post.`
+    );
+    // markdown stays as preAuditMarkdown, no reassignment
+  } else {
+    markdown = auditedMarkdown;
+    if (auditLog && !/no issues found/i.test(auditLog)) {
+      console.log(`Audit made changes: ${auditLog}`);
+    } else {
+      console.log("Audit found no issues.");
+    }
+  }
 
   console.log("Running the lint / quality gate...");
   const lint = await runLintForValueTopics(markdown, sourceContext.results.map((r) => r.url));
