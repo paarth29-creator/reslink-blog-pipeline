@@ -7,6 +7,14 @@
       "sanityDocId": null,
       "publishedAt": "2026-07-15T00:00:00.000Z",
       "note": "SKIPPED, not published. Two consecutive lint failures (1733 and 1885 words, both under the 2000 floor). Likely a sourcing-depth ceiling for this topic under the 'business' category's trusted-domain list, not a transient error. Revisit manually: either expand CATEGORY_DOMAIN_MAP.business in value-topic-search.js and retry, or write this one directly."
+    },
+    {
+      "id": 2,
+      "keyword": "solar subsidies Germany 2025",
+      "title": "Solar Subsidies Germany 2025 – What EPCs Need to Know in 2026",
+      "sanityDocId": "HgdL5GYxyg8jyYyxR4Eyfl",
+      "publishedAt": "2026-07-15T00:00:00.000Z",
+      "note": "Backfilled manually. Pipeline run succeeded and its own log showed a clean tracker commit (3ca33b4, '1 file changed, 7 insertions'), but that entry was not present in the repo afterward, root cause not yet confirmed, possibly two runs racing on the same commit. Verify in Sanity this doc ID is not duplicated before trusting this pipeline's tracking again."
     }
   ]
 }
