@@ -23,7 +23,7 @@
 import fs from "fs/promises";
 import { markdownToPortableText } from "@portabletext/markdown";
 import { createClient } from "@sanity/client";
-import { runLint } from "./lint.js";
+import { runLintForValueTopics } from "./value-topic-lint.js";
 import {
   parseMetaPanel,
   enforceMetaDescriptionLength,
@@ -356,7 +356,7 @@ Output the complete expanded post, still following every rule from your instruct
   if (sourcesRemoved) console.log(`Removed ${sourcesRemoved} unverified source(s) from the Sources section.`);
 
   console.log("Running the lint / quality gate...");
-  const lint = await runLint(markdown);
+  const lint = await runLintForValueTopics(markdown, sourceContext.results.map((r) => r.url));
   console.log(`Word count: ${lint.wordCount}`);
   if (lint.warnings.length) console.log("Warnings:", lint.warnings);
 

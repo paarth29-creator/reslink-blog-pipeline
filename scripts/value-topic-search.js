@@ -41,12 +41,41 @@ import { jinaFetchMany, filterTrustedSources } from "./context.js";
 const CATEGORY_DOMAIN_MAP = {
   technical: ["nrel.gov", "seia.org", "irena.org", "iea.org", "energy.gov", "pv-magazine.com", "pv-tech.org"],
   regulatory_india: ["mnre.gov.in", "cea.nic.in", "pib.gov.in", "mercomindia.com", "saurenergy.com"],
-  regulatory_eu: ["cleanenergywire.org", "bsw-solar.de", "idae.es", "iea.org", "europa.eu"],
+  // Base/shared sources only, not country-specific. See
+  // EU_COUNTRY_SPECIFIC_DOMAINS below, real bug found in production:
+  // this used to include both bsw-solar.de (Germany) and idae.es (Spain)
+  // for every regulatory_eu topic regardless of which country it was
+  // actually about. For the Germany topic, idae.es is irrelevant noise,
+  // for the Spain topic, bsw-solar.de is. Confirmed from a real run: the
+  // Germany post only pulled 4 sources total (mostly Clean Energy Wire),
+  // consistent with half the domain list never being relevant to begin
+  // with.
+  regulatory_eu: ["cleanenergywire.org", "iea.org", "europa.eu"],
   financial: ["nrel.gov", "irena.org", "iea.org", "lazard.com"],
   business: ["pv-magazine.com", "pv-tech.org", "mercomindia.com", "solarquarter.com"],
   career: ["seia.org", "pv-magazine.com", "energy.gov"],
   safety: ["nrel.gov", "osha.gov", "seia.org", "iec.ch"],
 };
+
+// topic.market is just "European Union" for both the Germany and Spain
+// topics, doesn't disambiguate, so this checks the topic's own keyword
+// text instead. Add a country here any time a new EU-market topic is
+// added to value-topics.js.
+const EU_COUNTRY_SPECIFIC_DOMAINS = {
+  germany: ["bsw-solar.de"],
+  spain: ["idae.es"],
+};
+
+function resolveDomainsForTopic(topic) {
+  const base = CATEGORY_DOMAIN_MAP[topic.category] || [];
+  if (topic.category !== "regulatory_eu") return base;
+
+  const lowerKeyword = topic.keyword.toLowerCase();
+  const extra = Object.entries(EU_COUNTRY_SPECIFIC_DOMAINS)
+    .filter(([country]) => lowerKeyword.includes(country))
+    .flatMap(([, domains]) => domains);
+  return [...base, ...extra];
+}
 
 // Domains this pipeline trusts that AREN'T in context.js's
 // TRUSTED_SOURCE_DOMAINS (that list wasn't built with evergreen/technical
@@ -163,7 +192,7 @@ export async function tavilyGeneralSearch(query, { includeDomains = [], maxResul
 // the trust gate, exactly mirroring the main pipeline's
 // search -> fetch -> filter -> format shape.
 export async function gatherEvergreenSourceContext(topic) {
-  const domains = CATEGORY_DOMAIN_MAP[topic.category] || [];
+  const domains = resolveDomainsForTopic(topic);
   if (!domains.length) {
     console.log(
       `Warning: no trusted-domain list configured for category "${topic.category}" (topic id ${topic.id}). Falling back to an unscoped search only, results are less predictable, consider adding this category to CATEGORY_DOMAIN_MAP.`
