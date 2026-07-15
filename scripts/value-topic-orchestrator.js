@@ -23,7 +23,7 @@
 import fs from "fs/promises";
 import { markdownToPortableText } from "@portabletext/markdown";
 import { createClient } from "@sanity/client";
-import { runLintForValueTopics } from "./value-topic-lint.js";
+import { runLintForValueTopics, CONFIG as LINT_CONFIG } from "./value-topic-lint.js";
 import {
   parseMetaPanel,
   enforceMetaDescriptionLength,
@@ -250,7 +250,14 @@ Also, more generally: never link to any reslink.org page you haven't been explic
   };
 
   let rawMarkdown;
-  const MAX_WRITER_ATTEMPTS = 3;
+  // Bumped 3 -> 4. Last run landed at 1996/2000, 4 words under, after the
+  // rough-count fix closed most of the previous gap (1654 -> 1996). The
+  // residual miss is small formatting-character differences between this
+  // rough count and lint's real one, not the same bug as before. Same
+  // reasoning already used elsewhere in this project for widening
+  // OpenRouter's retry budget: nobody's watching a terminal waiting on
+  // this, one more attempt costs nothing.
+  const MAX_WRITER_ATTEMPTS = 4;
   let previousDraft = null;
   let previousWordCount = null;
 
@@ -259,8 +266,8 @@ Also, more generally: never link to any reslink.org page you haven't been explic
     if (attempt === 1) {
       message = writerUserMessage;
     } else if (previousDraft) {
-      const shortfall = 2000 - previousWordCount;
-      message = `Here is a draft you wrote for this brief, ${previousWordCount} words, ${shortfall} words short of the 2000-word floor:
+      const shortfall = LINT_CONFIG.hardMinWords - previousWordCount;
+      message = `Here is a draft you wrote for this brief, ${previousWordCount} words, ${shortfall} words short of the ${LINT_CONFIG.hardMinWords}-word floor:
 
 ${previousDraft}
 
@@ -270,6 +277,8 @@ Do not rewrite this from scratch. Do not change the title, the central claim, or
 2. One of the categorization or supporting-info subsections (H4s): pick whichever one has the least depth right now, add 1-2 more paragraphs covering a practical detail an EPC would actually need.
 3. FAQ section: add one more genuinely useful question a skeptical EPC reader would actually ask, with a full, sourced answer, not a one-liner.
 
+Hard rule for this expansion pass specifically: do not invent any new specific number, percentage, weighting factor, ratio, or statistic that isn't directly present in the source content you were given. Needing more words is never a reason to state a figure you're not sourcing. If a section needs more depth, add real explanation, mechanism, procedural detail, or context that follows from what's already sourced, in plain language, not new numbers dressed up as precision. A confirmed real source check on a previous draft found exactly this failure, a specific-sounding percentage attributed to a real citation that the actual article never stated, that is the mistake this rule exists to prevent.
+
 Output the complete expanded post, still following every rule from your instructions.`;
     } else {
       message = writerUserMessage;
@@ -278,7 +287,7 @@ Output the complete expanded post, still following every rule from your instruct
     const candidate = await callOpenRouter(writerPrompt, message);
     const hasH1 = /^#\s+.+/m.test(candidate);
     const wordCount = roughWordCount(candidate);
-    const longEnough = wordCount >= 2100;
+    const longEnough = wordCount >= LINT_CONFIG.hardMinWords + 250; // same ~250-word buffer as before, now scaled to the real 1700 floor instead of the old 2000 one
 
     if (hasH1 && longEnough) {
       rawMarkdown = candidate;
@@ -293,7 +302,7 @@ Output the complete expanded post, still following every rule from your instruct
       previousDraft = null;
     }
 
-    const reason = !hasH1 ? "no H1 found" : `too short (about ${wordCount} words, need 2000+)`;
+    const reason = !hasH1 ? "no H1 found" : `too short (about ${wordCount} words, need ${LINT_CONFIG.hardMinWords}+)`;
     console.log(`Content writer output rejected before linting: ${reason} (attempt ${attempt}/${MAX_WRITER_ATTEMPTS})`);
     if (attempt === MAX_WRITER_ATTEMPTS) {
       console.log("Giving up on pre-lint retries, passing the last attempt through to the full lint gate anyway.");

@@ -17,8 +17,16 @@
 // file is unchanged from lint.js, same word count floor, same banned
 // strings/domains, same structure checks.
 
-const CONFIG = {
-  hardMinWords: 2000,
+// hardMinWords lowered from 2000 to 1700 per explicit instruction: 2200+
+// is now a soft/stretch target (still produces a warning, not a block,
+// see targetWords below), 1700+ actually publishes. Exported so nothing
+// else in this pipeline (the retry-loop shortfall message, the pre-lint
+// safety margin) has to hardcode this number separately and risk
+// drifting out of sync with the real rule, exactly the kind of
+// string/number mismatch that's caused silent bugs in this project
+// before.
+export const CONFIG = {
+  hardMinWords: 1700,
   targetWords: 2200,
   maxWords: 4000,
   requiredKeywordClusters: [],
