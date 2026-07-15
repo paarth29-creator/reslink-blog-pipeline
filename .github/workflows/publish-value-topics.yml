@@ -80,6 +80,19 @@ jobs:
             git add data/value-topics-published.json
             if ! git diff --staged --quiet; then
               git commit -m "Update value-topic tracker"
+              # Real failure seen in production: something else pushed to
+              # main while this run was mid-flight (a manual terminal
+              # push, most likely), so the plain push below got rejected
+              # with "fetch first", a real post ended up published but
+              # untracked. Pulling with rebase first picks up whatever
+              # landed on remote and replays this run's tracker commit on
+              # top of it, since the change is a simple, additive JSON
+              # array entry this resolves cleanly in the common case. If
+              # a genuine conflict remains (two runs both appended at the
+              # same array position), this intentionally still fails
+              # loud rather than guessing how to merge it, that's a real
+              # case for manual backfill, same as today.
+              git pull --rebase origin main
               git push
             else
               echo "Tracker file present but unchanged, nothing to commit."
