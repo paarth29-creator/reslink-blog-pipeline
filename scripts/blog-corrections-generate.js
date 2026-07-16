@@ -37,35 +37,58 @@ const PRIMARY_MODEL = process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b";
 
 async function callOpenRouter(systemPrompt, userPrompt) {
   const timeoutMs = 120_000;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${requireEnv("OPENROUTER_API_KEY")}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: PRIMARY_MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        max_tokens: 16000,
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`OpenRouter error ${res.status}: ${body}`);
+  const MAX_ATTEMPTS = 5; // same retry budget as the recurring pipeline, same reasoning: nothing is time-critical here, more patience costs nothing
+  const DEFAULT_BACKOFF_MS = [10_000, 20_000, 30_000, 45_000];
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${requireEnv("OPENROUTER_API_KEY")}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: PRIMARY_MODEL,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: 16000,
+        }),
+      });
+      if (!res.ok) {
+        const bodyText = await res.text();
+        if (res.status === 429 && attempt < MAX_ATTEMPTS) {
+          let waitMs = DEFAULT_BACKOFF_MS[attempt - 1];
+          try {
+            const retryAfter = JSON.parse(bodyText)?.error?.metadata?.retry_after_seconds;
+            if (typeof retryAfter === "number") waitMs = Math.ceil(retryAfter * 1000) + 1000;
+          } catch {
+            // fall back to default backoff
+          }
+          console.log(`Rate-limited, waiting ${Math.round(waitMs / 1000)}s before retry ${attempt + 1}/${MAX_ATTEMPTS}...`);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          continue;
+        }
+        throw new Error(`OpenRouter error ${res.status}: ${bodyText}`);
+      }
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) throw new Error(`OpenRouter returned no content: ${JSON.stringify(data)}`);
+      return content;
+    } catch (err) {
+      if (err.name === "AbortError" && attempt < MAX_ATTEMPTS) {
+        console.log(`Timed out, retrying (${attempt + 1}/${MAX_ATTEMPTS})...`);
+        continue;
+      }
+      if (attempt === MAX_ATTEMPTS) throw err;
+    } finally {
+      clearTimeout(timeout);
     }
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) throw new Error(`OpenRouter returned no content: ${JSON.stringify(data)}`);
-    return content;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
