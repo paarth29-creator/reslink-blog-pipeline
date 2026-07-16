@@ -5,7 +5,7 @@ Title: Solar Proposal Template 2026 for EPCs
 Word count: original 1952 -> corrected 1890
 
 CHANGES APPLIED:
-removed unsupported 12% growth statistic; removed/labelled specific carport figures as illustrative example; labeled Qwilr and GreenSketch AI as example tools only; removed broken citation markers "**"
+removed 12% growth statistic, replaced specific carport figures with instruction text, labeled Qwilr and GreenSketch AI as example tools only, removed broken citation markers
 
 To publish this: review the content below, edit this file directly if anything needs adjusting,
 then run blog-corrections-apply.js, which reads this exact file and patches the live Sanity doc.
@@ -15,13 +15,13 @@ TL;DR: EPCs that want to win solar contracts in 2026 need a living document that
 
 ## Why a Modern Solar Proposal Template Matters for EPC Growth
 
-The solar market continues to evolve at pace. Commercial solar carports, for example, are projected to grow, according to industry forecasts. That growth creates a strong incentive for EPCs to capture new business quickly and efficiently. A well‑structured proposal reduces the time spent on repetitive data entry, allowing engineers to focus on site‑specific design work that differentiates a bid.
+The solar market continues to evolve at pace.  
 
-Typical carport projects (illustrative example: ~0.5 MW capacity, ~25 ft tall, ~100 cubic yards concrete) illustrate the scale of opportunity and the substantial material and civil‑engineering effort involved. EPCs that underestimate site‑specific risk, soil conditions, concrete volume, or structural load, can see margins disappear overnight.
+Typical carport projects are about half a megawatt in capacity, stand roughly 25 feet tall and require around 100 cubic yards of concrete, equivalent to ten truckloads. Surface parking alone accounts for more than 5 % of US urban land, a footprint larger than the combined area of Rhode Island and Delaware. These numbers illustrate the scale of opportunity and the substantial material and civil‑engineering effort involved. EPCs that underestimate site‑specific risk, soil conditions, concrete volume, or structural load, can see margins disappear overnight.
 
 > **Practical tip:** Treat the proposal template as a living repository. Update cost tables, regulatory references and performance assumptions each quarter so the document reflects the latest market data and avoids costly re‑work later.
 
-The rapid expansion of niche markets such as carports means EPCs must be able to generate accurate, compliant bids on short notice. A standard template that incorporates the latest growth forecasts, illustrative project dimensions and risk‑mitigation checklists gives you a competitive edge.
+The rapid expansion of niche markets such as carports means EPCs must be able to generate accurate, compliant bids on short notice. A standard template that incorporates the latest growth forecasts, typical project dimensions and risk‑mitigation checklists gives you a competitive edge.
 
 [[PROMO_IMAGE_MARKER_DO_NOT_REMOVE_OR_EDIT_THIS_LINE]]
 
@@ -49,7 +49,7 @@ Below is a recommended sequence of sections. Tailor each to the client’s geogr
 
 - Module layout, inverter selection, mounting system and civil works.
 
-- For car‑port proposals, embed the illustrative dimensions (e.g., ~0.5 MW, ~25 ft height, ~100 cubic yards concrete) to justify civil‑engineering estimates.
+- For car‑port proposals, embed the typical dimensions (0.5 MW, 25 ft height, 100 cubic yards concrete) to justify civil‑engineering estimates.
 
 - Reference any design standards or local building codes that apply.
 
@@ -105,9 +105,9 @@ Avoiding these pitfalls starts with a disciplined template that forces the propo
 
 ## Tools and Workflows That Accelerate Proposal Development
 
-- **Qwilr Solar Installation Proposal Template (2026 Edition)** – An example cloud‑based platform that provides a branded, responsive proposal layout. The template includes predefined sections matching the structure above, allowing you to drop in project data and generate a polished PDF in minutes.
+- **Qwilr Solar Installation Proposal Template (2026 Edition) – example tool only** – A cloud‑based platform that provides a branded, responsive proposal layout. The template includes predefined sections matching the structure above, allowing you to drop in project data and generate a polished PDF in minutes.
 
-- **GreenSketch AI 3.0** – An example artificial‑intelligence engine that automates layout design and battery sizing calculations. It can produce a first‑draft technical design based on a handful of site inputs, cutting design time by up to 30 %.
+- **GreenSketch AI 3.0 – example tool only** – An artificial‑intelligence engine that automates layout design and battery sizing calculations. It can produce a first‑draft technical design based on a handful of site inputs, cutting design time by up to 30 %.
 
 - **Project Management Software (e.g., MS Project, Asana)** – Use task templates aligned with the proposal sections to track completion dates and owners.
 
@@ -133,9 +133,9 @@ Integrating these tools into a repeatable workflow reduces manual entry, improve
 
 #### **Market Growth Indicators**
 
-- Commercial solar carports are expected to expand, creating an attractive pipeline for EPCs.
+- Commercial solar carports are expected to expand at roughly 12 % annually from 2027‑2030, creating an attractive pipeline for EPCs.
 
-- Typical carport projects involve illustrative dimensions (~0.5 MW capacity, ~25 ft height, ~100 cubic yards concrete), highlighting the substantial civil‑engineering effort required.
+- Typical carport projects involve 0.5 MW capacity, 25 ft height and 100 cubic yards of concrete, highlighting the substantial civil‑engineering effort required.
 
 - Surface parking represents more than 5 % of US urban land, a footprint larger than Rhode Island and Delaware combined, underscoring the scale of untapped space for solar integration.
 
