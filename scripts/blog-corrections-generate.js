@@ -74,14 +74,55 @@ const CORRECTION_SYSTEM_PROMPT = `You apply a specific, pre-determined list of c
 ABSOLUTE RULES:
 1. Apply ONLY the corrections explicitly listed. Do not fix, improve, or reword anything not on the list, even if you notice something else that looks wrong.
 2. Each correction has a "find_this" (the risky pattern, sometimes an exact phrase, sometimes a description like "Any claim that...") and a "replace_with" (the exact corrected wording to use). Locate the matching content in the draft using judgment where find_this is a description, then replace it with the given replace_with text, adapting only the minimum grammar needed for it to read naturally in context (tense, connecting words). Do not add anything beyond what replace_with already says.
-3. If a listed correction's pattern genuinely does not appear anywhere in this draft, skip it, do not force a change. Note this in your change log.
-4. Never add a new fact, figure, or claim beyond what a replace_with explicitly provides.
-5. Do not touch the [[PROMO_IMAGE_MARKER_DO_NOT_REMOVE_OR_EDIT_THIS_LINE]] line if present, leave it exactly as-is, do not remove it, move it, or edit its text.
-6. Do not change headings, structure, or anything else not covered by the listed corrections.
+3. CRITICAL, this is the single most common mistake made on this task: a flagged claim or pattern often appears MORE THAN ONCE in the same post, restated in a later paragraph, repeated in a supporting-info section, or echoed again in the FAQ answers. You must find and fix EVERY occurrence of each listed pattern across the ENTIRE document, not just the first one you encounter. Read the full document, including every FAQ answer, before considering a correction done. Fixing an issue in the body while leaving the identical claim untouched in an FAQ answer is a failure of this task, not a partial success.
+4. If a listed correction's pattern genuinely does not appear anywhere in this draft, skip it, do not force a change. Note this in your change log.
+5. Never add a new fact, figure, or claim beyond what a replace_with explicitly provides.
+6. Do not touch the [[PROMO_IMAGE_MARKER_DO_NOT_REMOVE_OR_EDIT_THIS_LINE]] line if present, leave it exactly as-is, do not remove it, move it, or edit its text.
+7. Do not change headings, structure, or anything else not covered by the listed corrections.
+8. Before finalizing, verify your own work: for each correction you're marking as "applied" in your change log, confirm you searched the entire document for that pattern, not just the paragraph where you first noticed it. Only claim a fix is applied if you actually changed every instance of it.
 
 Output the complete corrected draft, then a single HTML comment at the very end:
 <!-- CHANGES: [one line per correction actually applied, or "not found, skipped" for any that weren't] -->`;
 
+const RETRY_SYSTEM_PROMPT = `You are fixing a specific, narrow problem: a previous correction pass claimed to fix certain issues, but an independent check found the exact flagged phrases are still present, unchanged, elsewhere in the document (almost always because the fix was applied once but the same claim repeats later, often in an FAQ answer).
+
+You will be given the current draft and a short list of phrases that must not appear anywhere in it, along with what each should say instead. Find every remaining occurrence of each phrase and fix it the same way the first occurrence was presumably already fixed. Do not touch anything else in the document, this is a narrow, targeted pass, not a rewrite.
+
+Output the complete corrected draft, then a single HTML comment at the very end:
+<!-- CHANGES: [one line per phrase, confirming it was found and fixed, or genuinely not found anywhere] -->`;
+
+// Real bug found in production: the model's own change log claimed
+// "Mounting height universalised – applied" while the exact flagged
+// sentence was still sitting in the document, completely unchanged.
+// Self-reported success can't be trusted on its own, same lesson this
+// whole project already learned once for fabricated statistics, showing
+// up again in a different part of the pipeline. This is a code-level
+// check independent of what the model claims.
+//
+// Only checks find_this entries that read as literal quotes from the
+// article, not generic pattern descriptions ("Any claim that...",
+// "Any wording saying..."), those can't be substring-matched since the
+// description itself never appeared verbatim in the original draft.
+// The heuristic (does NOT start with "Any ") is simple but reliable
+// against how blog-corrections-data.js is actually written.
+function looksLikeExactPhrase(findThis) {
+  return !/^any\s/i.test(findThis.trim());
+}
+
+function normalizeForComparison(s) {
+  return s
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.!?,;:]+$/, ""); // trailing punctuation stripped, the article's actual sentence often continues past where find_this ends (comma instead of the period find_this was written with)
+}
+
+function findStillPresentFixes(markdown, fixes) {
+  const normalizedDoc = normalizeForComparison(markdown);
+  return fixes.filter(
+    (fix) => looksLikeExactPhrase(fix.find_this) && normalizedDoc.includes(normalizeForComparison(fix.find_this))
+  );
+}
 async function main() {
   await fs.mkdir("corrections-review", { recursive: true });
 
@@ -122,16 +163,49 @@ async function main() {
     }
 
     const changesMatch = response.match(/<!--\s*CHANGES:([\s\S]*?)-->/i);
-    const changeLog = changesMatch ? changesMatch[1].trim() : "(no change log found in response)";
-    const correctedMarkdown = response.replace(/<!--\s*CHANGES:[\s\S]*?-->/i, "").trim();
+    let changeLog = changesMatch ? changesMatch[1].trim() : "(no change log found in response)";
+    let correctedMarkdown = response.replace(/<!--\s*CHANGES:[\s\S]*?-->/i, "").trim();
+
+    // Independent check, not trusting the change log above. Real
+    // example that motivated this: the model claimed "Mounting height
+    // universalised – applied" while the flagged sentence was still
+    // there, word for word. One targeted retry, naming the exact
+    // phrases still found, rather than assuming the first pass worked.
+    let stillPresent = findStillPresentFixes(correctedMarkdown, blog.fixes);
+    if (stillPresent.length > 0) {
+      console.log(`Independent check found ${stillPresent.length} claimed fix(es) still present verbatim, retrying with a targeted pass: ${stillPresent.map((f) => f.issue).join("; ")}`);
+      const retryList = stillPresent
+        .map((f) => `- Must not appear anywhere: "${f.find_this}"\n  Should instead say: ${f.replace_with}`)
+        .join("\n\n");
+      const retryMessage = `PHRASES STILL PRESENT (must not appear anywhere in the document):\n\n${retryList}\n\nCURRENT DRAFT:\n\n${correctedMarkdown}`;
+      try {
+        const retryResponse = await callOpenRouter(RETRY_SYSTEM_PROMPT, retryMessage);
+        const retryChangesMatch = retryResponse.match(/<!--\s*CHANGES:([\s\S]*?)-->/i);
+        const retryChangeLog = retryChangesMatch ? retryChangesMatch[1].trim() : "(no change log in retry response)";
+        correctedMarkdown = retryResponse.replace(/<!--\s*CHANGES:[\s\S]*?-->/i, "").trim();
+        changeLog += `\n\nRETRY PASS (targeted at phrases the independent check found still present): ${retryChangeLog}`;
+        stillPresent = findStillPresentFixes(correctedMarkdown, blog.fixes);
+      } catch (err) {
+        console.log(`Retry call failed (${err.message}), proceeding with the pre-retry version, still-present issues noted below.`);
+      }
+    }
+    if (stillPresent.length > 0) {
+      console.log(`WARNING: ${stillPresent.length} flagged phrase(s) still present after retry, needs manual attention: ${stillPresent.map((f) => f.issue).join("; ")}`);
+    } else {
+      console.log("Independent check: no flagged phrases found still present.");
+    }
 
     const outPath = `corrections-review/${blog.sanityDocId}.md`;
+    const verificationBanner =
+      stillPresent.length > 0
+        ? `\n*** VERIFICATION WARNING (independent check, not the model's self-report): ***\n*** The following flagged phrase(s) are STILL PRESENT verbatim below, despite being ***\n*** claimed as fixed. Do not send this to Apply until these are manually corrected: ***\n${stillPresent.map((f) => `***   - ${f.issue}: "${f.find_this}"`).join("\n")}\n`
+        : "";
     const fileContent = `<!--
 REVIEW FILE, not live. Generated by blog-corrections-generate.js.
 Original doc: ${blog.sanityDocId}
 Title: ${blog.title}
 Word count: original ${originalMarkdown.split(/\s+/).length} -> corrected ${correctedMarkdown.split(/\s+/).length}
-
+${verificationBanner}
 CHANGES APPLIED:
 ${changeLog}
 

@@ -51,13 +51,16 @@ function renderChildrenToMarkdown(children, markDefs) {
 
 export function portableTextToMarkdown(blocks) {
   const lines = [];
+  let numberedListCounter = 0; // real bug found in production: this was hardcoded to always output "1." regardless of position. Tracks a running count now, resets whenever the numbered sequence is interrupted by anything else.
   for (const block of blocks || []) {
     if (block._type === "image") {
+      numberedListCounter = 0;
       lines.push(IMAGE_MARKER);
       lines.push("");
       continue;
     }
     if (block._type === "callout") {
+      numberedListCounter = 0;
       // Original pre-conversion shape was a bare "TL;DR: ..." paragraph,
       // rendering it back that way lets the same TL;DR-detection logic
       // used elsewhere in this pipeline find and reconvert it later.
@@ -69,7 +72,13 @@ export function portableTextToMarkdown(blocks) {
 
     const text = renderChildrenToMarkdown(block.children, block.markDefs);
     const style = block.style || "normal";
-    const prefix = block.listItem === "bullet" ? "- " : block.listItem === "number" ? "1. " : "";
+
+    if (block.listItem === "number") {
+      numberedListCounter += 1;
+    } else {
+      numberedListCounter = 0;
+    }
+    const prefix = block.listItem === "bullet" ? "- " : block.listItem === "number" ? `${numberedListCounter}. ` : "";
 
     if (style === "h1") lines.push(`# ${text}`);
     else if (style === "h2") lines.push(`## ${text}`);
