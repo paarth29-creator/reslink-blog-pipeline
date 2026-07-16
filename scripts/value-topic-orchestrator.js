@@ -184,6 +184,29 @@ async function alert(message) {
   }
 }
 
+// Real, observed issue, not covered by any existing rule:
+// content-writer.md's Action Checklist section just calls for bulleted,
+// bolded-lead-in items, no emoji specified anywhere. The model started
+// prepending checkmark emoji (✅, 🔲, etc.) to those bullets on its own.
+// Same category as the em-dash problem, a formatting habit, so it gets
+// the same treatment: a code-level strip rather than a prompt-only note
+// hoping it holds. Uses Unicode emoji property matching (u flag) rather
+// than a manual character list, catches variants without needing to
+// enumerate every checkmark/box symbol a model might reach for.
+// Deliberately scoped to bullet list markers only (- or *), a blockquote
+// line (>) or anything else is left untouched.
+function stripLeadingEmojiFromBullets(markdown) {
+  let strippedCount = 0;
+  const cleaned = markdown.replace(
+    /^([-*]\s+)(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})\uFE0F?\s*/gmu,
+    (match, bulletMarker) => {
+      strippedCount++;
+      return bulletMarker;
+    }
+  );
+  return { cleaned, strippedCount };
+}
+
 function slugify(title) {
   return title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 96);
 }
@@ -267,8 +290,8 @@ Also, more generally: never link to any reslink.org page you haven't been explic
     if (attempt === 1) {
       message = writerUserMessage;
     } else if (previousDraft) {
-      const shortfall = LINT_CONFIG.hardMinWords - previousWordCount;
-      message = `Here is a draft you wrote for this brief, ${previousWordCount} words, ${shortfall} words short of the ${LINT_CONFIG.hardMinWords}-word floor:
+      const shortfall = LINT_CONFIG.targetWords - previousWordCount;
+      message = `Here is a draft you wrote for this brief, ${previousWordCount} words, ${shortfall} words short of the ${LINT_CONFIG.targetWords}-word target:
 
 ${previousDraft}
 
@@ -288,7 +311,7 @@ Output the complete expanded post, still following every rule from your instruct
     const candidate = await callOpenRouter(writerPrompt, message);
     const hasH1 = /^#\s+.+/m.test(candidate);
     const wordCount = roughWordCount(candidate);
-    const longEnough = wordCount >= LINT_CONFIG.hardMinWords + 250; // same ~250-word buffer as before, now scaled to the real 1700 floor instead of the old 2000 one
+    const longEnough = wordCount >= LINT_CONFIG.targetWords - 100; // retries still chase the real 2200-word aspiration, independent of the lint floor below, which is now deliberately low and shouldn't be what determines how hard this loop tries
 
     if (hasH1 && longEnough) {
       rawMarkdown = candidate;
@@ -303,7 +326,7 @@ Output the complete expanded post, still following every rule from your instruct
       previousDraft = null;
     }
 
-    const reason = !hasH1 ? "no H1 found" : `too short (about ${wordCount} words, need ${LINT_CONFIG.hardMinWords}+)`;
+    const reason = !hasH1 ? "no H1 found" : `too short (about ${wordCount} words, aiming for ${LINT_CONFIG.targetWords}, though anything reasonable will still publish)`;
     console.log(`Content writer output rejected before linting: ${reason} (attempt ${attempt}/${MAX_WRITER_ATTEMPTS})`);
     if (attempt === MAX_WRITER_ATTEMPTS) {
       console.log("Giving up on pre-lint retries, passing the last attempt through to the full lint gate anyway.");
@@ -365,6 +388,10 @@ Output the complete expanded post, still following every rule from your instruct
   const { cleaned: headingsFixedMarkdown, fixedCount: headingsFixed } = fixBoldedH3Headings(markdown);
   markdown = headingsFixedMarkdown;
   if (headingsFixed) console.log(`Fixed ${headingsFixed} bolded H3 heading(s).`);
+
+  const { cleaned: emojiStrippedMarkdown, strippedCount: emojiStripped } = stripLeadingEmojiFromBullets(markdown);
+  markdown = emojiStrippedMarkdown;
+  if (emojiStripped) console.log(`Stripped ${emojiStripped} leading emoji from bullet list item(s).`);
 
   const { cleaned: allLinksVerifiedMarkdown, strippedCount: unverifiedLinksStripped } = restrictAllLinksToVerified(
     markdown,
@@ -530,24 +557,40 @@ Apply all checks now. Output per your instructions.`;
   }
 
   try {
-    // Real bug found in your first published post: bullet list items
-    // convert to the same shape as a normal paragraph (_type: "block",
-    // style: "normal"), just with an added listItem property, so they
-    // were counting toward "paragraph 3" and pulling the insertion point
-    // earlier than intended. Excluding anything with listItem set fixes
-    // it, only true prose paragraphs count now.
-    const paragraphIndices = contentBlocks.map((b, i) => (b._type === "block" && b.style === "normal" && !b.listItem ? i : -1)).filter((i) => i !== -1);
+    // "Before the last 3 paragraphs" means the last 3 of the MAIN BODY
+    // specifically, not the whole document, FAQ answers must not count.
+    // Found via real testing before shipping: a realistic 9-question FAQ
+    // section made the earlier version insert the image between an FAQ
+    // question and its own answer, splitting a single Q&A pair in half.
+    // content-writer.md requires the exact heading text "Frequently
+    // Asked Questions" for that H2 (Step 3's structure spec), so that's
+    // the boundary: everything from there onward is excluded from the
+    // paragraph count entirely.
+    const faqHeadingIndex = contentBlocks.findIndex(
+      (b) => b._type === "block" && b.style === "h2" && (b.children || []).some((c) => /frequently asked questions/i.test(c.text || ""))
+    );
+    const bodyEndIndex = faqHeadingIndex === -1 ? contentBlocks.length : faqHeadingIndex;
+    if (faqHeadingIndex === -1) {
+      console.log("FAQ heading not found by exact expected text, treating the whole document as body for promo placement purposes (fallback, not an error).");
+    }
+
+    const paragraphIndices = contentBlocks
+      .slice(0, bodyEndIndex)
+      .map((b, i) => (b._type === "block" && b.style === "normal" && !b.listItem ? i : -1))
+      .filter((i) => i !== -1);
     if (paragraphIndices.length > 0) {
-      const target = Math.min(3, paragraphIndices.length) - 1;
-      const insertAfter = paragraphIndices[target];
-      contentBlocks.splice(insertAfter + 1, 0, {
+      const target = Math.max(0, paragraphIndices.length - 3);
+      const insertBeforeIndex = paragraphIndices[target];
+      contentBlocks.splice(insertBeforeIndex, 0, {
         _type: "image",
         _key: randomKey(),
         asset: { _type: "reference", _ref: PROMO_IMAGE_ASSET_ID },
         alt: PROMO_IMAGE_ALT,
         link: { href: PROMO_IMAGE_LINK, openInNewTab: true },
       });
-      console.log(`Inserted the promo creative after paragraph ${target + 1}.`);
+      console.log(`Inserted the promo creative before body paragraph ${target + 1} of ${paragraphIndices.length} (before the last ${Math.min(3, paragraphIndices.length)} body paragraph(s), FAQs excluded from this count entirely).`);
+    } else {
+      console.log("No body paragraphs found before the FAQ section, skipping promo creative insertion this run.");
     }
   } catch (err) {
     console.log(`Promo creative skipped (${err.message}).`);

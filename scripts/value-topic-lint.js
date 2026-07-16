@@ -17,16 +17,18 @@
 // file is unchanged from lint.js, same word count floor, same banned
 // strings/domains, same structure checks.
 
-// hardMinWords lowered from 2000 to 1700 per explicit instruction: 2200+
-// is now a soft/stretch target (still produces a warning, not a block,
-// see targetWords below), 1700+ actually publishes. Exported so nothing
-// else in this pipeline (the retry-loop shortfall message, the pre-lint
-// safety margin) has to hardcode this number separately and risk
-// drifting out of sync with the real rule, exactly the kind of
-// string/number mismatch that's caused silent bugs in this project
-// before.
+// hardMinWords lowered from 1700 to 500, per explicit instruction: word
+// count should never block a publish for a genuinely sourced post, only
+// catch actual broken output. 500 is not arbitrary, it matches this
+// project's own original reasoning for having a floor at all (from the
+// main pipeline's history): the floor exists to catch a reasoning trace
+// that never finished, an empty section, a real non-answer, not to
+// reject a real, honestly-sourced post that came in shorter than an
+// aspirational target because the topic itself didn't have more
+// legitimate material to draw from. 2200+ (targetWords) stays as the
+// aspirational bar, still just a warning below it, never a block.
 export const CONFIG = {
-  hardMinWords: 1700,
+  hardMinWords: 500,
   targetWords: 2200,
   maxWords: 4000,
   requiredKeywordClusters: [],
