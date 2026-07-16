@@ -11,7 +11,13 @@ permissions:
 jobs:
   generate-corrections:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Raised from 20 to 60. Each blog now makes up to 4 LLM calls (apply,
+    # independently verify, retry if needed, re-verify), not 1, since the
+    # verification-pass rebuild. 9 blogs at that rate, plus real
+    # retry-with-backoff on top for OpenRouter congestion, can genuinely
+    # exceed 20 minutes, that's what killed the previous run mid-way,
+    # losing everything since the commit step never got to run.
+    timeout-minutes: 60
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
