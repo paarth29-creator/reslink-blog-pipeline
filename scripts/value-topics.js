@@ -48,6 +48,31 @@ export const VALUE_TOPICS = [
   { id: 18, market: "Global", category: "technical", keyword: "NTP to COD milestones in solar project development" },
   { id: 19, market: "Global", category: "safety", keyword: "solar installation electrical wiring guide" },
   { id: 20, market: "Global", category: "business", keyword: "solar company marketing strategies" },
+
+  // Batch 2, added 2026-07-16, sourced from Aurora Solar's Blog/Article
+  // pages specifically (the competitor dashboard's other 4 markets have
+  // already been drawn from once each, this batch pulls the rest of
+  // Aurora's genuinely available Blog/Article-type inventory, 8 found
+  // total, 1 already used as id 4, these are the remaining 7). Same
+  // exclusion rules applied: no glossary, no comparison/review, no
+  // commercial-intent, keyword-as-seed only, competitor content never
+  // fetched or referenced.
+  //
+  //   - id 21 was originally "kW vs kWh difference solar", a bare
+  //     definitional pair, same shape as the NTP/COD case. Reframed per
+  //     explicit decision toward a practical, proposal-reading angle.
+  //   - id 26 ("solar panel types guide 2026") genuinely overlaps with
+  //     id 4's subject matter (both touch monocrystalline/polycrystalline/
+  //     thin-film). Kept deliberately, per explicit decision, on the
+  //     basis that id 4 stays efficiency-number-focused while this one
+  //     stays types/profiles-focused, not a duplicate angle.
+  { id: 21, market: "Global", category: "technical", keyword: "reading kW and kWh correctly on a solar proposal or utility bill" },
+  { id: 22, market: "Global", category: "technical", keyword: "peak and off-peak electricity hours for solar systems" },
+  { id: 23, market: "Global", category: "technical", keyword: "AC vs DC solar panels explained" },
+  { id: 24, market: "Global", category: "technical", keyword: "solar panel system components explained" },
+  { id: 25, market: "Global", category: "technical", keyword: "solar plan set guide for EPCs" },
+  { id: 26, market: "Global", category: "technical", keyword: "solar panel types guide 2026" },
+  { id: 27, market: "Global", category: "technical", keyword: "solar shading losses mitigation techniques" },
 ];
 
 export function getTopicsNeedingReview() {

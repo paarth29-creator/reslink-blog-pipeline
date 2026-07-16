@@ -37,16 +37,18 @@ async function writeTrackerFile(data) {
 // Deliberately simple and deterministic, not random, so a failed run is
 // easy to reason about (it'll just retry the same topic next time,
 // nothing subtle about which one gets picked).
+// Returns the first topic (in list order) not yet marked published, or
+// null if every topic in the list is done. Returning null rather than
+// throwing is deliberate: an exhausted list isn't an error condition by
+// itself, whether that should mean "fail loudly so I notice" or "stop
+// quietly until more topics are added" is a decision the caller makes,
+// not this function. As of 2026-07-16, the orchestrator treats null as
+// a clean, non-failing exit.
 export async function pickNextUnpublishedTopic(topics) {
   const tracker = await readTrackerFile();
   const publishedIds = new Set(tracker.published.map((p) => p.id));
   const next = topics.find((t) => !publishedIds.has(t.id));
-  if (!next) {
-    throw new Error(
-      `All ${topics.length} topics in the list have already been published (per ${TRACKER_PATH}). Add more topics or reset the tracker file before running again.`
-    );
-  }
-  return next;
+  return next || null;
 }
 
 export async function markTopicPublished(topic, { sanityDocId, title } = {}) {

@@ -50,7 +50,7 @@ import {
 import { VALUE_TOPICS } from "./value-topics.js";
 import { gatherEvergreenSourceContext, gatherRecencyCheck } from "./value-topic-search.js";
 import { buildBrief, formatRecencyDevelopments } from "./value-topic-brief.js";
-import { pickNextUnpublishedTopic, markTopicPublished } from "./value-topic-tracker.js";
+import { pickNextUnpublishedTopic, markTopicPublished, getPublishedCount } from "./value-topic-tracker.js";
 import { RESLINK_FACTS } from "./value-topic-reslink-context.js";
 
 // ---- Config, mirrors orchestrator.js's own values ------------------------
@@ -226,6 +226,11 @@ async function main() {
   console.log(`Value-topic pipeline. Using model: ${PRIMARY_MODEL} (fallback: ${FALLBACK_MODEL})`);
 
   const topic = await pickNextUnpublishedTopic(VALUE_TOPICS);
+  if (!topic) {
+    console.log(`All ${VALUE_TOPICS.length} topics in the current list are already published. Nothing to do this run.`);
+    console.log("This is a clean stop, not a failure, no alert sent. Add more topics to value-topics.js to resume automatically, or this will just keep exiting cleanly like this on every future scheduled run until you do.");
+    process.exit(0);
+  }
   console.log(`Topic selected: id ${topic.id}, "${topic.keyword}" (market: ${topic.market}, category: ${topic.category})`);
 
   console.log("Gathering evergreen source context (Tavily, domain-scoped, then Jina-verified)...");
@@ -650,6 +655,14 @@ Apply all checks now. Output per your instructions.`;
   const created = await sanity.create(doc);
 
   await markTopicPublished(topic, { sanityDocId: created._id, title });
+
+  const totalPublished = await getPublishedCount();
+  if (totalPublished >= VALUE_TOPICS.length) {
+    await alert(
+      `Value-topic pipeline: that was the LAST topic in the current list (all ${VALUE_TOPICS.length} now published). Every future scheduled run will exit cleanly with nothing to do until more topics are added. If you want an actual hard stop, disable this workflow's schedule from the Actions tab now, "..." menu -> Disable workflow, re-enable the same way whenever you're ready to resume.`
+    );
+    console.log(`This was the last of ${VALUE_TOPICS.length} topics. See the alert above for what to do next.`);
+  }
 
   await alert(`New value-topic blog post published: "${title}" (topic id ${topic.id}, Sanity doc: ${created._id}, ${lint.wordCount} words)`);
   console.log("Done.");
