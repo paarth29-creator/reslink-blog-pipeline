@@ -1,0 +1,48 @@
+name: Generate blog corrections (review only, no live changes)
+
+# Manual trigger ONLY, no schedule, this is a one-off task against the
+# 10 already-published posts, not part of the recurring pipeline.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # needed to commit the review files back to the repo
+
+jobs:
+  generate-corrections:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate correction review files
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+          SANITY_PROJECT_ID: ${{ secrets.SANITY_PROJECT_ID }}
+          SANITY_DATASET: ${{ secrets.SANITY_DATASET }}
+          SANITY_API_TOKEN: ${{ secrets.SANITY_API_TOKEN }}
+        run: node scripts/blog-corrections-generate.js
+
+      - name: Commit review files
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add corrections-review/
+          if ! git diff --staged --quiet; then
+            git commit -m "Generate blog correction review files"
+            git pull --rebase origin main
+            git push
+          else
+            echo "Nothing to commit."
+          fi
