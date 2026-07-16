@@ -14,7 +14,7 @@
 import fs from "fs/promises";
 import { createClient } from "@sanity/client";
 import { BLOG_CORRECTIONS } from "./blog-corrections-data.js";
-import { portableTextToMarkdown } from "./portable-text-markdown.js";
+import { portableTextToMarkdown, IMAGE_MARKER } from "./portable-text-markdown.js";
 
 function requireEnv(name) {
   const val = process.env[name];
@@ -127,6 +127,8 @@ VERIFICATION: ISSUES FOUND
 
 const RETRY_SYSTEM_PROMPT = `You are fixing specific problems an independent verification pass found in a previous correction attempt. You will be given the current draft and a list of exact problems that must be fixed. Fix precisely these, search the entire document for every occurrence of each one, including FAQ answers and supporting sections. Do not touch anything else. If a problem is a deletion that wasn't fully completed, complete the deletion, no placeholder text, no leftover trace. If a problem is a fabricated replacement figure, remove it entirely rather than inventing yet another number.
 
+CRITICAL: if you see a line reading exactly [[PROMO_IMAGE_MARKER_DO_NOT_REMOVE_OR_EDIT_THIS_LINE]] anywhere in the document, you must leave it completely untouched, in its exact original position. Do not delete it, move it, or treat it as something to clean up, it is not a mistake in the document, it is required and intentional.
+
 Output the complete corrected draft, then a single HTML comment at the very end:
 <!-- CHANGES: [one line per problem, confirming it was fixed] -->`;
 
@@ -195,6 +197,18 @@ function findLeakedInstructionText(markdown, fixes) {
     (fix) => INSTRUCTION_VERB_PATTERN.test(fix.replace_with.trim()) && normalizedDoc.includes(normalizeForComparison(fix.replace_with))
   );
 }
+
+// Fully deterministic, no LLM judgment needed: if the original document
+// had the promo image marker, the corrected one must too. Real bug
+// found in production: the retry prompt had no instruction protecting
+// this marker (only the main correction prompt did), so every file that
+// needed a retry silently lost its promo image entirely, since the
+// apply script finds where to reinsert the real image block by locating
+// this exact marker text. This check can't be fooled by a plausible-
+// sounding change log the way the LLM-based checks theoretically could.
+function promoMarkerWasLost(originalMarkdown, correctedMarkdown) {
+  return originalMarkdown.includes(IMAGE_MARKER) && !correctedMarkdown.includes(IMAGE_MARKER);
+}
 async function main() {
   await fs.mkdir("corrections-review", { recursive: true });
 
@@ -249,6 +263,7 @@ async function main() {
     // vocabulary leaking into the visible text.
     let bookkeepingLeaks = findBookkeepingLeaks(correctedMarkdown);
     let instructionLeaks = findLeakedInstructionText(correctedMarkdown, blog.fixes);
+    let markerLost = promoMarkerWasLost(originalMarkdown, correctedMarkdown);
 
     // Layer 2, a genuinely separate LLM call whose only job is auditing
     // this specific correction pass's actual output, adversarially, not
@@ -267,12 +282,13 @@ async function main() {
       console.log(`Verification call failed (${err.message}), proceeding without that layer for this blog, relying on the deterministic checks only.`);
     }
 
-    const hasRealIssues = bookkeepingLeaks.length > 0 || instructionLeaks.length > 0 || verificationIssues.length > 0;
+    const hasRealIssues = bookkeepingLeaks.length > 0 || instructionLeaks.length > 0 || markerLost || verificationIssues.length > 0;
     if (hasRealIssues) {
-      console.log(`Verification found real problems, retrying: ${bookkeepingLeaks.length} bookkeeping leak(s), ${instructionLeaks.length} leaked instruction text, ${verificationIssues.length} independently-verified issue(s).`);
+      console.log(`Verification found real problems, retrying: ${bookkeepingLeaks.length} bookkeeping leak(s), ${instructionLeaks.length} leaked instruction text, ${markerLost ? 1 : 0} lost promo marker, ${verificationIssues.length} independently-verified issue(s).`);
       const retryProblems = [
         ...bookkeepingLeaks.map((p) => `- Internal bookkeeping text leaked into visible content, matching pattern: ${p}`),
         ...instructionLeaks.map((f) => `- The literal correction instruction text was pasted in as if it were article content, for "${f.issue}". It must be actually applied/removed, not quoted verbatim.`),
+        ...(markerLost ? [`- The [[PROMO_IMAGE_MARKER_DO_NOT_REMOVE_OR_EDIT_THIS_LINE]] line was removed. It must be restored, add it back near where the third real body paragraph ends, do not otherwise change surrounding content to fit it in.`] : []),
         ...verificationIssues,
       ].join("\n");
       const retryMessage = `PROBLEMS FOUND BY INDEPENDENT VERIFICATION:\n\n${retryProblems}\n\nCURRENT DRAFT:\n\n${correctedMarkdown}`;
@@ -285,6 +301,7 @@ async function main() {
         // Re-check after the retry, same layers, don't just assume it worked.
         bookkeepingLeaks = findBookkeepingLeaks(correctedMarkdown);
         instructionLeaks = findLeakedInstructionText(correctedMarkdown, blog.fixes);
+        markerLost = promoMarkerWasLost(originalMarkdown, correctedMarkdown);
         try {
           const reverifyResponse = await callOpenRouter(VERIFICATION_SYSTEM_PROMPT, `CORRECTIONS THAT WERE SUPPOSED TO BE APPLIED:\n\n${fixList}\n\nDOCUMENT TO CHECK:\n\n${correctedMarkdown}`);
           verificationIssues = /ISSUES FOUND/i.test(reverifyResponse)
@@ -298,7 +315,7 @@ async function main() {
       }
     }
 
-    const stillHasIssues = bookkeepingLeaks.length > 0 || instructionLeaks.length > 0 || verificationIssues.length > 0;
+    const stillHasIssues = bookkeepingLeaks.length > 0 || instructionLeaks.length > 0 || markerLost || verificationIssues.length > 0;
     if (stillHasIssues) {
       console.log(`WARNING: real problems remain after retry, needs manual attention.`);
     } else {
@@ -307,7 +324,7 @@ async function main() {
 
     const outPath = `corrections-review/${blog.sanityDocId}.md`;
     const verificationBanner = stillHasIssues
-      ? `\n*** VERIFICATION WARNING (independent check, not the model's self-report): ***\n*** Real problems were found and were NOT fully resolved even after a retry. ***\n*** Do not send this to Apply until these are manually corrected: ***\n${bookkeepingLeaks.map((p) => `***   - Internal bookkeeping text leaked into content (pattern: ${p})`).join("\n")}\n${instructionLeaks.map((f) => `***   - Correction instruction text leaked in verbatim for: ${f.issue}`).join("\n")}\n${verificationIssues.map((v) => `***   ${v}`).join("\n")}\n`
+      ? `\n*** VERIFICATION WARNING (independent check, not the model's self-report): ***\n*** Real problems were found and were NOT fully resolved even after a retry. ***\n*** Do not send this to Apply until these are manually corrected: ***\n${bookkeepingLeaks.map((p) => `***   - Internal bookkeeping text leaked into content (pattern: ${p})`).join("\n")}\n${instructionLeaks.map((f) => `***   - Correction instruction text leaked in verbatim for: ${f.issue}`).join("\n")}\n${markerLost ? "***   - PROMO IMAGE MARKER WAS LOST, applying this file as-is would silently drop the promo creative from the live post\n" : ""}${verificationIssues.map((v) => `***   ${v}`).join("\n")}\n`
       : "";
     const fileContent = `<!--
 REVIEW FILE, not live. Generated by blog-corrections-generate.js.
