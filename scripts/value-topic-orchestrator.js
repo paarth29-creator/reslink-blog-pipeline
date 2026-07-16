@@ -425,7 +425,7 @@ Output the complete expanded post, still following every rule from your instruct
   // back to publishing an unaudited draft. Skipping verification
   // silently would defeat the entire point of adding it. Same treatment
   // as a lint failure, alert, publish nothing, retry next scheduled run.
-  console.log("Running pre-publish audit (6 checks: truth, scope, currentness, wording, competitor balance, citation style)...");
+  console.log("Running pre-publish audit (6 checks: truth, scope, currentness, wording, competitor balance, citation style), then independent verification of the audit's own work...");
   const auditPrompt = await fs.readFile("prompts/value-topic-audit.md", "utf8");
   const preAuditMarkdown = markdown;
   const preAuditWordCount = preAuditMarkdown.split(/\s+/).filter(Boolean).length;
@@ -525,6 +525,74 @@ Apply all checks now. Output per your instructions.`;
       console.log(`Audit made changes: ${auditLog}`);
     } else {
       console.log("Audit found no issues.");
+    }
+
+    // Independent verification pass, doesn't trust the audit's own
+    // change log above. Real production evidence for why this exists,
+    // not a hypothetical: a separate correction task run earlier proved
+    // twice that this exact kind of self-report can be wrong, a claimed
+    // fix that never happened, an unsupported figure swapped for a
+    // different unsupported figure, internal process text leaking into
+    // visible content. This applies the same lesson here.
+    console.log("Running independent audit verification...");
+    const verifyPrompt = await fs.readFile("prompts/value-topic-audit-verify.md", "utf8");
+    const verifyMessage = `DRAFT BEFORE AUDIT:\n\n${preAuditMarkdown}\n\nDRAFT AFTER AUDIT (what would actually publish):\n\n${markdown}\n\nAUDIT'S OWN CHANGE LOG (a self-report, do not trust without checking):\n${auditLog || "(no issues found)"}\n\nREAL FETCHED SOURCE TEXT:\n${sourceContext.results.map((r) => `\n### Source: ${r.url}\n${r.content}\n`).join("")}`;
+
+    let verificationIssues = [];
+    try {
+      const verificationResponse = await callOpenRouter(verifyPrompt, verifyMessage);
+      if (/ISSUES FOUND/i.test(verificationResponse)) {
+        verificationIssues = verificationResponse
+          .split("\n")
+          .filter((line) => line.trim().startsWith("-"))
+          .map((line) => line.trim());
+      }
+    } catch (err) {
+      // Verification call failing is not the same as verification
+      // finding nothing wrong. Fail closed here too, same reasoning as
+      // the main audit call above: publishing something that was
+      // supposed to be independently checked, but wasn't, defeats the
+      // point of having this step at all.
+      await alert(
+        `Value-topic pipeline: audit verification call itself failed, nothing published. Topic: id ${topic.id}, "${topic.keyword}". Error: ${err.message}`
+      );
+      process.exit(1);
+    }
+
+    if (verificationIssues.length > 0) {
+      console.log(`Verification found ${verificationIssues.length} real issue(s), attempting one targeted retry: ${verificationIssues.join(" | ")}`);
+      const retryPrompt = `You are fixing specific problems an independent verification pass found in your own previous audit pass. Fix precisely the problems listed, search the entire document for every occurrence, do not touch anything else. If a problem is a fabricated replacement figure, remove it entirely rather than inventing yet another number. Output the complete corrected draft, then a single HTML comment at the very end: <!-- AUDIT: [one line per problem, confirming it was fixed] -->`;
+      const retryMessage = `PROBLEMS FOUND BY INDEPENDENT VERIFICATION:\n\n${verificationIssues.join("\n")}\n\nCURRENT DRAFT:\n\n${markdown}`;
+      try {
+        const retryResponse = await callOpenRouter(retryPrompt, retryMessage);
+        const retryMarkdown = retryResponse.replace(/<!--\s*AUDIT:[\s\S]*?-->/i, "").trim();
+        const reverifyMessage = `DRAFT BEFORE AUDIT:\n\n${preAuditMarkdown}\n\nDRAFT AFTER AUDIT (what would actually publish):\n\n${retryMarkdown}\n\nAUDIT'S OWN CHANGE LOG (a self-report, do not trust without checking):\n(retry pass, see problems it was asked to fix)\n\nREAL FETCHED SOURCE TEXT:\n${sourceContext.results.map((r) => `\n### Source: ${r.url}\n${r.content}\n`).join("")}`;
+        const reverifyResponse = await callOpenRouter(verifyPrompt, reverifyMessage);
+        const stillHasIssues = /ISSUES FOUND/i.test(reverifyResponse);
+        if (!stillHasIssues) {
+          markdown = retryMarkdown;
+          console.log("Retry resolved the verification issues. Verification: clean.");
+        } else {
+          // No human reviews this pipeline's output before it publishes,
+          // unlike the one-off correction task this pattern came from.
+          // A flagged-but-published post isn't an option here, block
+          // the same way the audit's own critical-block path already
+          // does, same safety standard, different trigger.
+          console.log(`Verification still found real issues after retry, blocking publish: ${reverifyResponse.slice(0, 500)}`);
+          await alert(
+            `Value-topic pipeline: independent verification found real problems that survived a retry, blocking publish rather than shipping something known to have issues. Topic: id ${topic.id}, "${topic.keyword}". Issues: ${verificationIssues.join(" | ")}`
+          );
+          process.exit(1);
+        }
+      } catch (err) {
+        console.log(`Retry or re-verification call failed (${err.message}), blocking publish rather than guessing whether the original issues were real.`);
+        await alert(
+          `Value-topic pipeline: verification retry failed to complete, blocking publish. Topic: id ${topic.id}, "${topic.keyword}". Error: ${err.message}`
+        );
+        process.exit(1);
+      }
+    } else {
+      console.log("Independent verification: clean.");
     }
   }
 
