@@ -96,23 +96,39 @@ const CORRECTION_SYSTEM_PROMPT = `You apply a specific, pre-determined list of c
 
 ABSOLUTE RULES:
 1. Apply ONLY the corrections explicitly listed. Do not fix, improve, or reword anything not on the list, even if you notice something else that looks wrong.
-2. Each correction has a "find_this" (the risky pattern, sometimes an exact phrase, sometimes a description like "Any claim that...") and a "replace_with" (the exact corrected wording to use). Locate the matching content in the draft using judgment where find_this is a description, then replace it with the given replace_with text, adapting only the minimum grammar needed for it to read naturally in context (tense, connecting words). Do not add anything beyond what replace_with already says.
-3. CRITICAL, this is the single most common mistake made on this task: a flagged claim or pattern often appears MORE THAN ONCE in the same post, restated in a later paragraph, repeated in a supporting-info section, or echoed again in the FAQ answers. You must find and fix EVERY occurrence of each listed pattern across the ENTIRE document, not just the first one you encounter. Read the full document, including every FAQ answer, before considering a correction done. Fixing an issue in the body while leaving the identical claim untouched in an FAQ answer is a failure of this task, not a partial success.
-4. If a listed correction's pattern genuinely does not appear anywhere in this draft, skip it, do not force a change. Note this in your change log.
-5. Never add a new fact, figure, or claim beyond what a replace_with explicitly provides.
-6. Do not touch the [[PROMO_IMAGE_MARKER_DO_NOT_REMOVE_OR_EDIT_THIS_LINE]] line if present, leave it exactly as-is, do not remove it, move it, or edit its text.
-7. Do not change headings, structure, or anything else not covered by the listed corrections.
-8. Before finalizing, verify your own work: for each correction you're marking as "applied" in your change log, confirm you searched the entire document for that pattern, not just the paragraph where you first noticed it. Only claim a fix is applied if you actually changed every instance of it.
+2. Each correction has a "find_this" (the risky pattern, sometimes an exact phrase, sometimes a description like "Any claim that...") and a "replace_with" (the exact corrected wording to use, or a deletion instruction). Locate the matching content in the draft using judgment where find_this is a description, then apply the replace_with instruction exactly, adapting only the minimum grammar needed for it to read naturally in context.
+3. CRITICAL: a flagged claim or pattern often appears MORE THAN ONCE in the same post, restated in a later paragraph, repeated in a supporting-info section, or echoed again in the FAQ answers. Find and fix EVERY occurrence across the ENTIRE document, not just the first one. Fixing an issue in the body while leaving the identical claim untouched in an FAQ answer is a failure, not a partial success.
+4. If a correction instructs deleting content entirely, delete it completely and let the surrounding text read naturally, as if it was never there. NEVER write a placeholder, note, or explanation where deleted content used to be. Never write internal phrases like "not found", "skipped", "not applicable", or any other bookkeeping language as if it were real article content, a reader must never see any trace of this correction process itself. If a whole FAQ question must be deleted, delete the entire question and answer pair and renumber everything after it, never leave a numbered question with placeholder text as its answer.
+5. If a correction instructs removing an unsupported specific figure or statistic, remove it completely or replace it only with the exact qualifying language the replace_with provides. Do NOT invent a different specific number to fill the gap, that recreates the exact problem being fixed with a new fabricated figure instead of the old one.
+6. If a listed correction's pattern genuinely does not appear anywhere in this draft, leave that part of the document completely untouched and note this in your change log only, never insert anything into the visible text about it.
+7. Never add a new fact, figure, or claim beyond what a replace_with explicitly provides.
+8. Do not touch the [[PROMO_IMAGE_MARKER_DO_NOT_REMOVE_OR_EDIT_THIS_LINE]] line if present.
+9. Do not change headings, structure, or anything else not covered by the listed corrections, except where a correction explicitly requires removing a heading (e.g. deleting an entire FAQ entry).
 
 Output the complete corrected draft, then a single HTML comment at the very end:
-<!-- CHANGES: [one line per correction actually applied, or "not found, skipped" for any that weren't] -->`;
+<!-- CHANGES: [one line per correction actually applied, or "not found, skipped" for any that weren't, this comment is internal only and will never appear in the visible document] -->`;
 
-const RETRY_SYSTEM_PROMPT = `You are fixing a specific, narrow problem: a previous correction pass claimed to fix certain issues, but an independent check found the exact flagged phrases are still present, unchanged, elsewhere in the document (almost always because the fix was applied once but the same claim repeats later, often in an FAQ answer).
+const VERIFICATION_SYSTEM_PROMPT = `You are an independent auditor checking whether a correction pass actually did what it claims. You did not make the corrections yourself. Do not trust the change log the correction pass produced, verify against the actual document text directly, skeptically, as if the claims might be wrong, because they sometimes are.
 
-You will be given the current draft and a short list of phrases that must not appear anywhere in it, along with what each should say instead. Find every remaining occurrence of each phrase and fix it the same way the first occurrence was presumably already fixed. Do not touch anything else in the document, this is a narrow, targeted pass, not a rewrite.
+You will be given the original list of required corrections and the corrected document. For EVERY correction in the list, check the ENTIRE document, including every FAQ answer, every supporting-info subsection, and the sources list, not just where you'd expect to find it:
+
+1. Is the flagged pattern, or a clear semantic restatement of it, still present anywhere? A correction is only genuinely done if every occurrence is gone, not just the first one.
+2. If the correction instructed deleting a topic/entity/section entirely, is that topic genuinely absent everywhere, headings, body text, and sources list included?
+3. Does the document contain any internal bookkeeping or instruction-style text that leaked into the visible content (phrases like "not found", "skipped", raw correction instructions, anything that reads like a note-to-self rather than real article content)?
+4. For any correction that asked to remove an unsupported figure or statistic, does the document now contain a DIFFERENT specific number in that same spot that isn't actually supported either, a fabricated replacement rather than a genuine removal?
+
+Output ONLY this, nothing else:
+
+If everything genuinely checks out: VERIFICATION: CLEAN
+
+If not, for each real problem found:
+VERIFICATION: ISSUES FOUND
+- [which correction]: [exact quote of the problem text still in the document]: [why this is still a problem]`;
+
+const RETRY_SYSTEM_PROMPT = `You are fixing specific problems an independent verification pass found in a previous correction attempt. You will be given the current draft and a list of exact problems that must be fixed. Fix precisely these, search the entire document for every occurrence of each one, including FAQ answers and supporting sections. Do not touch anything else. If a problem is a deletion that wasn't fully completed, complete the deletion, no placeholder text, no leftover trace. If a problem is a fabricated replacement figure, remove it entirely rather than inventing yet another number.
 
 Output the complete corrected draft, then a single HTML comment at the very end:
-<!-- CHANGES: [one line per phrase, confirming it was found and fixed, or genuinely not found anywhere] -->`;
+<!-- CHANGES: [one line per problem, confirming it was fixed] -->`;
 
 // Real bug found in production: the model's own change log claimed
 // "Mounting height universalised – applied" while the exact flagged
@@ -144,6 +160,39 @@ function findStillPresentFixes(markdown, fixes) {
   const normalizedDoc = normalizeForComparison(markdown);
   return fixes.filter(
     (fix) => looksLikeExactPhrase(fix.find_this) && normalizedDoc.includes(normalizeForComparison(fix.find_this))
+  );
+}
+
+// Cheap, free, deterministic check for our own known bookkeeping
+// vocabulary leaking into the visible document, real failure found in
+// production: "not found, skipped" (language this exact prompt asks the
+// model to use internally) got pasted directly into a live FAQ answer.
+// This doesn't need an LLM call, we know exactly which phrases we
+// ourselves introduced into the internal vocabulary.
+const BOOKKEEPING_LEAK_PATTERNS = [/not found,?\s*skipped/i, /not applicable/i, /\bapplied\b\s*$/im];
+
+function findBookkeepingLeaks(markdown) {
+  return BOOKKEEPING_LEAK_PATTERNS.filter((pattern) => pattern.test(markdown));
+}
+
+// Second, distinct deterministic layer: real failure found in
+// production, a replace_with instruction ("Remove this figure, or
+// clearly label it as an illustrative scenario with stated assumptions
+// for...") got pasted verbatim as if it were the article's own content,
+// not one of the shorter internal-vocabulary phrases above. Only checks
+// replace_with entries that read as instructions to the model (start
+// with an imperative verb) rather than substantive replacement prose,
+// since many replace_with entries in blog-corrections-data.js ARE meant
+// to be inserted as real sentences, this only flags the ones that
+// clearly aren't. A near-verbatim match of a full instruction sentence
+// essentially never happens by legitimate coincidence, so this carries
+// effectively zero false-positive risk when it does fire.
+const INSTRUCTION_VERB_PATTERN = /^(remove|delete|clarify|label|verify|replace this|drop|omit)\b/i;
+
+function findLeakedInstructionText(markdown, fixes) {
+  const normalizedDoc = normalizeForComparison(markdown);
+  return fixes.filter(
+    (fix) => INSTRUCTION_VERB_PATTERN.test(fix.replace_with.trim()) && normalizedDoc.includes(normalizeForComparison(fix.replace_with))
   );
 }
 async function main() {
@@ -189,40 +238,77 @@ async function main() {
     let changeLog = changesMatch ? changesMatch[1].trim() : "(no change log found in response)";
     let correctedMarkdown = response.replace(/<!--\s*CHANGES:[\s\S]*?-->/i, "").trim();
 
-    // Independent check, not trusting the change log above. Real
-    // example that motivated this: the model claimed "Mounting height
-    // universalised – applied" while the flagged sentence was still
-    // there, word for word. One targeted retry, naming the exact
-    // phrases still found, rather than assuming the first pass worked.
-    let stillPresent = findStillPresentFixes(correctedMarkdown, blog.fixes);
-    if (stillPresent.length > 0) {
-      console.log(`Independent check found ${stillPresent.length} claimed fix(es) still present verbatim, retrying with a targeted pass: ${stillPresent.map((f) => f.issue).join("; ")}`);
-      const retryList = stillPresent
-        .map((f) => `- Must not appear anywhere: "${f.find_this}"\n  Should instead say: ${f.replace_with}`)
-        .join("\n\n");
-      const retryMessage = `PHRASES STILL PRESENT (must not appear anywhere in the document):\n\n${retryList}\n\nCURRENT DRAFT:\n\n${correctedMarkdown}`;
+    // Two independent layers, neither of which trusts the correction
+    // pass's own change log, real lesson from production: that log has
+    // claimed fixes that didn't happen, at least four different ways
+    // (a repeat left untouched, a placeholder pasted in as content, a
+    // "delete everywhere" only partially done, an unsupported figure
+    // swapped for a different unsupported figure).
+    //
+    // Layer 1, free and deterministic: our own known bookkeeping
+    // vocabulary leaking into the visible text.
+    let bookkeepingLeaks = findBookkeepingLeaks(correctedMarkdown);
+    let instructionLeaks = findLeakedInstructionText(correctedMarkdown, blog.fixes);
+
+    // Layer 2, a genuinely separate LLM call whose only job is auditing
+    // this specific correction pass's actual output, adversarially, not
+    // asked to also do any editing itself.
+    const verifyMessage = `CORRECTIONS THAT WERE SUPPOSED TO BE APPLIED:\n\n${fixList}\n\nDOCUMENT TO CHECK:\n\n${correctedMarkdown}`;
+    let verificationIssues = [];
+    try {
+      const verificationResponse = await callOpenRouter(VERIFICATION_SYSTEM_PROMPT, verifyMessage);
+      if (/ISSUES FOUND/i.test(verificationResponse)) {
+        verificationIssues = verificationResponse
+          .split("\n")
+          .filter((line) => line.trim().startsWith("-"))
+          .map((line) => line.trim());
+      }
+    } catch (err) {
+      console.log(`Verification call failed (${err.message}), proceeding without that layer for this blog, relying on the deterministic checks only.`);
+    }
+
+    const hasRealIssues = bookkeepingLeaks.length > 0 || instructionLeaks.length > 0 || verificationIssues.length > 0;
+    if (hasRealIssues) {
+      console.log(`Verification found real problems, retrying: ${bookkeepingLeaks.length} bookkeeping leak(s), ${instructionLeaks.length} leaked instruction text, ${verificationIssues.length} independently-verified issue(s).`);
+      const retryProblems = [
+        ...bookkeepingLeaks.map((p) => `- Internal bookkeeping text leaked into visible content, matching pattern: ${p}`),
+        ...instructionLeaks.map((f) => `- The literal correction instruction text was pasted in as if it were article content, for "${f.issue}". It must be actually applied/removed, not quoted verbatim.`),
+        ...verificationIssues,
+      ].join("\n");
+      const retryMessage = `PROBLEMS FOUND BY INDEPENDENT VERIFICATION:\n\n${retryProblems}\n\nCURRENT DRAFT:\n\n${correctedMarkdown}`;
       try {
         const retryResponse = await callOpenRouter(RETRY_SYSTEM_PROMPT, retryMessage);
         const retryChangesMatch = retryResponse.match(/<!--\s*CHANGES:([\s\S]*?)-->/i);
         const retryChangeLog = retryChangesMatch ? retryChangesMatch[1].trim() : "(no change log in retry response)";
         correctedMarkdown = retryResponse.replace(/<!--\s*CHANGES:[\s\S]*?-->/i, "").trim();
-        changeLog += `\n\nRETRY PASS (targeted at phrases the independent check found still present): ${retryChangeLog}`;
-        stillPresent = findStillPresentFixes(correctedMarkdown, blog.fixes);
+        changeLog += `\n\nRETRY PASS (targeted at independently-verified problems): ${retryChangeLog}`;
+        // Re-check after the retry, same layers, don't just assume it worked.
+        bookkeepingLeaks = findBookkeepingLeaks(correctedMarkdown);
+        instructionLeaks = findLeakedInstructionText(correctedMarkdown, blog.fixes);
+        try {
+          const reverifyResponse = await callOpenRouter(VERIFICATION_SYSTEM_PROMPT, `CORRECTIONS THAT WERE SUPPOSED TO BE APPLIED:\n\n${fixList}\n\nDOCUMENT TO CHECK:\n\n${correctedMarkdown}`);
+          verificationIssues = /ISSUES FOUND/i.test(reverifyResponse)
+            ? reverifyResponse.split("\n").filter((line) => line.trim().startsWith("-")).map((line) => line.trim())
+            : [];
+        } catch {
+          // If re-verification itself fails to run, don't silently claim clean, keep whatever was last known.
+        }
       } catch (err) {
-        console.log(`Retry call failed (${err.message}), proceeding with the pre-retry version, still-present issues noted below.`);
+        console.log(`Retry call failed (${err.message}), proceeding with the pre-retry version, problems noted below.`);
       }
     }
-    if (stillPresent.length > 0) {
-      console.log(`WARNING: ${stillPresent.length} flagged phrase(s) still present after retry, needs manual attention: ${stillPresent.map((f) => f.issue).join("; ")}`);
+
+    const stillHasIssues = bookkeepingLeaks.length > 0 || instructionLeaks.length > 0 || verificationIssues.length > 0;
+    if (stillHasIssues) {
+      console.log(`WARNING: real problems remain after retry, needs manual attention.`);
     } else {
-      console.log("Independent check: no flagged phrases found still present.");
+      console.log("Independent verification: clean.");
     }
 
     const outPath = `corrections-review/${blog.sanityDocId}.md`;
-    const verificationBanner =
-      stillPresent.length > 0
-        ? `\n*** VERIFICATION WARNING (independent check, not the model's self-report): ***\n*** The following flagged phrase(s) are STILL PRESENT verbatim below, despite being ***\n*** claimed as fixed. Do not send this to Apply until these are manually corrected: ***\n${stillPresent.map((f) => `***   - ${f.issue}: "${f.find_this}"`).join("\n")}\n`
-        : "";
+    const verificationBanner = stillHasIssues
+      ? `\n*** VERIFICATION WARNING (independent check, not the model's self-report): ***\n*** Real problems were found and were NOT fully resolved even after a retry. ***\n*** Do not send this to Apply until these are manually corrected: ***\n${bookkeepingLeaks.map((p) => `***   - Internal bookkeeping text leaked into content (pattern: ${p})`).join("\n")}\n${instructionLeaks.map((f) => `***   - Correction instruction text leaked in verbatim for: ${f.issue}`).join("\n")}\n${verificationIssues.map((v) => `***   ${v}`).join("\n")}\n`
+      : "";
     const fileContent = `<!--
 REVIEW FILE, not live. Generated by blog-corrections-generate.js.
 Original doc: ${blog.sanityDocId}

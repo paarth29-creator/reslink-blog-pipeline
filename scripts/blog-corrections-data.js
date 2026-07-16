@@ -113,7 +113,7 @@ export const BLOG_CORRECTIONS = [
         severity: "critical",
         issue: "ISDE incorrectly used for Spain",
         find_this: "Any ISDE section, ISDE FAQ, or claim that ISDE provides Spain solar/battery subsidy support.",
-        replace_with: "Delete the full ISDE section and all ISDE FAQs entirely. ISDE is a Netherlands programme, not Spain, this content does not belong in a Spain-focused article at all.",
+        replace_with: "DELETE, mechanically, every one of these: (1) the ISDE mention in the 'What the 2026 Spanish Solar Incentive Landscape Covers' section's list of tracked IEA programmes, (2) the entire Q3 question and answer pair about the ISDE supplemental grant, then renumber every FAQ after it down by one (old Q4 becomes new Q3, old Q5 becomes new Q4, and so on through the end), (3) the ISDE source entry in the Sources list at the bottom. ISDE is a Netherlands programme and must not appear anywhere in this Spain-focused article, not in a heading, not in a source list, not in a passing mention. Do not write any placeholder, note, or internal comment where content was removed, deleted content simply disappears, the surrounding text should read naturally as if it was never there.",
       },
       {
         severity: "critical",
