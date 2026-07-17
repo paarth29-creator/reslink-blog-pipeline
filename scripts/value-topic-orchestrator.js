@@ -601,7 +601,7 @@ Output the complete corrected draft, then a single HTML comment at the very end:
             .map((line) => line.trim());
           const quotedClaims = stillFlaggedIssues
             .map((line) => {
-              const match = line.match(/^-\s*["\u201c]([^"\u201d]+)["\u201d]/);
+              const match = line.match(/^-\s*\*{0,2}["\u201c]([^"\u201d]+)["\u201d]\*{0,2}/);
               return match ? match[1].trim() : null;
             })
             .filter(Boolean);
