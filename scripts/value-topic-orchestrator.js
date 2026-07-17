@@ -127,7 +127,21 @@ async function callOpenRouterOnce(systemPrompt, userPrompt, { disableReasoning, 
     throw err;
   }
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch (err) {
+    // Real failure seen in production: OpenRouter can return a 200
+    // status with an empty or truncated response body, a transient
+    // server-side or connection issue, not something res.ok catches
+    // since the STATUS was fine, only the body was broken. Without this,
+    // a raw JSON.parse error propagated all the way up and crashed the
+    // whole pipeline on attempt one, with zero retries, exactly the kind
+    // of transient issue the retry system already exists to absorb.
+    const parseErr = new Error(`OpenRouter returned a ${res.status} status but the response body wasn't valid JSON, likely a truncated or empty response (transient): ${err.message}`);
+    parseErr.retryable = true;
+    throw parseErr;
+  }
   const content = data?.choices?.[0]?.message?.content;
   if (!content) throw new Error(`OpenRouter returned no content: ${JSON.stringify(data)}`);
   return content;
@@ -151,9 +165,9 @@ async function callOpenRouterWithRetries(systemPrompt, userPrompt, model) {
     try {
       return await callOpenRouterAdaptive(systemPrompt, userPrompt, model);
     } catch (err) {
-      if (err.status !== 429 || attempt === MAX_ATTEMPTS) throw err;
+      if ((err.status !== 429 && !err.retryable) || attempt === MAX_ATTEMPTS) throw err;
       const wait = err.retryAfterMs ? err.retryAfterMs + 1000 : DEFAULT_BACKOFF_MS[attempt - 1];
-      console.log(`${model} rate-limited, waiting ${Math.round(wait / 1000)}s before retry ${attempt + 1}/${MAX_ATTEMPTS}...`);
+      console.log(`${model} ${err.retryable ? "had a transient error" : "rate-limited"}, waiting ${Math.round(wait / 1000)}s before retry ${attempt + 1}/${MAX_ATTEMPTS}...`);
       await new Promise((resolve) => setTimeout(resolve, wait));
     }
   }
