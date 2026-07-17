@@ -259,7 +259,9 @@ ${sourceContext.results.map((r) => `\n### Source (cite this exact URL): ${r.url}
 
 Do not generate a "You May Also Like" section at all, it's disabled for now, skip straight from FAQs to Sources.
 
-Also, more generally: never link to any reslink.org page you haven't been explicitly given a real URL for anywhere in this document, demo pages, resource downloads, or anything else, describe it in plain text with no link instead.`;
+Also, more generally: never link to any reslink.org page you haven't been explicitly given a real URL for anywhere in this document, demo pages, resource downloads, or anything else, describe it in plain text with no link instead.
+
+One more thing, real failure seen in production: if the fetched sources above don't fully cover every angle this topic could touch, do not refuse to write the post, and do not output an explanation of why you can't proceed as your answer. That is never the right output here. Instead, write the most complete, honest post you can from what the fetched sources actually do support, even if that means a subsection is shorter than usual, an FAQ question gets dropped, or a subtopic is addressed more briefly than ideal. A shorter, fully honest post beats no post at all, and it beats a fabricated one. Your output must always be the actual post itself, in the required Markdown structure, never a message about sourcing limitations.`;
 
   // Real bug found across two separate real runs (id 1 and id 2, both
   // landing suspiciously close together at 1573-1885 words despite
@@ -659,6 +661,19 @@ Output the complete corrected draft, then a single HTML comment at the very end:
     const postAuditLongCitations = countLongCitationAnchors(markdown);
     console.log(`Long citation link count: ${preAuditLongCitations} before audit -> ${postAuditLongCitations} after.`);
   }
+
+  // Final catch-all em-dash strip. The original strip runs once, early,
+  // right after the writer's raw draft comes back. Everything added
+  // since then, audit, retry, omission, are all separate LLM calls that
+  // never pass through that early step. Free models reach for
+  // em-dashes as a formatting habit regardless of instructions, that's
+  // literally why the early strip exists as a code backstop rather than
+  // a prompt note, and the same reasoning applies to every call added
+  // after it. Real production evidence: id 18 failed lint on exactly
+  // this after the new verification/retry/omission calls were added.
+  const finalEmDashCount = (markdown.match(/\u2014/g) || []).length;
+  markdown = markdown.replace(/\s*\u2014\s*/g, ", ");
+  if (finalEmDashCount) console.log(`Final catch-all: replaced ${finalEmDashCount} em-dash(es) introduced after the original strip.`);
 
   console.log("Running the lint / quality gate...");
   const lint = await runLintForValueTopics(markdown, sourceContext.results.map((r) => r.url));
