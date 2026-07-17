@@ -561,7 +561,18 @@ Apply all checks now. Output per your instructions.`;
 
     if (verificationIssues.length > 0) {
       console.log(`Verification found ${verificationIssues.length} real issue(s), attempting one targeted retry: ${verificationIssues.join(" | ")}`);
-      const retryPrompt = `You are fixing specific problems an independent verification pass found in your own previous audit pass. Fix precisely the problems listed, search the entire document for every occurrence, do not touch anything else. If a problem is a fabricated replacement figure, remove it entirely rather than inventing yet another number. Output the complete corrected draft, then a single HTML comment at the very end: <!-- AUDIT: [one line per problem, confirming it was fixed] -->`;
+      // Strengthened to match the main audit prompt's absolute rule, not
+      // just a narrow "don't invent a replacement number" note. Real
+      // production evidence for why: two separate runs on the same
+      // topic both showed a DIFFERENT set of fabricated figures after
+      // the retry than before it, consistent with the retry fixing the
+      // named problems while introducing new ones elsewhere, not just
+      // failing to fix the original ones.
+      const retryPrompt = `You are fixing specific problems an independent verification pass found in your own previous audit pass. Fix precisely the problems listed, search the entire document for every occurrence, do not touch anything else.
+
+ABSOLUTE RULE: you may NOT add any new fact, figure, statistic, sentence, or claim that wasn't already verified elsewhere in this document or explicitly given to you. Needing the post to feel complete, or needing a section to still sound authoritative, is never a reason to add something new. If the correct fix is a claim getting genuinely shorter or a section losing a specific number entirely with nothing to replace it, that is the correct outcome, not a gap to fill. Less information published beats false information published.
+
+Output the complete corrected draft, then a single HTML comment at the very end: <!-- AUDIT: [one line per problem, confirming it was fixed] -->`;
       const retryMessage = `PROBLEMS FOUND BY INDEPENDENT VERIFICATION:\n\n${verificationIssues.join("\n")}\n\nCURRENT DRAFT:\n\n${markdown}`;
       try {
         const retryResponse = await callOpenRouter(retryPrompt, retryMessage);
@@ -573,21 +584,69 @@ Apply all checks now. Output per your instructions.`;
           markdown = retryMarkdown;
           console.log("Retry resolved the verification issues. Verification: clean.");
         } else {
-          // No human reviews this pipeline's output before it publishes,
-          // unlike the one-off correction task this pattern came from.
-          // A flagged-but-published post isn't an option here, block
-          // the same way the audit's own critical-block path already
-          // does, same safety standard, different trigger.
-          console.log(`Verification still found real issues after retry, blocking publish: ${reverifyResponse.slice(0, 500)}`);
-          await alert(
-            `Value-topic pipeline: independent verification found real problems that survived a retry, blocking publish rather than shipping something known to have issues. Topic: id ${topic.id}, "${topic.keyword}". Issues: ${verificationIssues.join(" | ")}`
-          );
-          process.exit(1);
+          // Real fix, not a defensive fallback: a genuine "fix" attempt
+          // has now failed twice for this content, asking a third time
+          // for the same kind of fix isn't likely to do better.
+          // Deleting the flagged claims outright is a fundamentally
+          // easier, safer task than finding a way to make them true,
+          // and the pipeline no longer has a word-count reason to avoid
+          // it, the real floor is 500 words, a sanity check, not a
+          // target. Publishing shorter beats not publishing at all.
+          console.log("Retry didn't resolve everything, forcing removal of the specific flagged claims instead of blocking or retrying again.");
+          const stillFlaggedIssues = reverifyResponse
+            .split("\n")
+            .filter((line) => line.trim().startsWith("-"))
+            .map((line) => line.trim());
+          const quotedClaims = stillFlaggedIssues
+            .map((line) => {
+              const match = line.match(/^-\s*["\u201c]([^"\u201d]+)["\u201d]/);
+              return match ? match[1].trim() : null;
+            })
+            .filter(Boolean);
+
+          if (quotedClaims.length === 0) {
+            // Verification's own output didn't give us a clean quote to
+            // remove, nothing safe to act on, this is the one case that
+            // still needs to block, not a topic-thinness problem, a
+            // format problem with the check itself.
+            console.log("Could not extract specific claim text to remove from the verification output, blocking rather than guessing what to delete.");
+            await alert(
+              `Value-topic pipeline: verification found unresolved issues but didn't return extractable claim text to remove, blocking publish. Topic: id ${topic.id}, "${topic.keyword}". Raw: ${reverifyResponse.slice(0, 500)}`
+            );
+            process.exit(1);
+          }
+
+          const omitPrompt = `Delete the following exact claims from this document entirely. Do not replace them with anything, do not add any new fact or figure to fill the gap, do not try to rephrase them into something true, just remove them completely. Smooth only the immediate grammar directly around each cut (a dangling connector word, a now-empty sentence), nothing else. If removing a claim leaves an entire subsection too thin to make sense on its own, remove that subsection's heading along with it rather than leave a fragment. Do not touch anything else in the document.
+
+CLAIMS TO DELETE:
+${quotedClaims.map((c) => `- "${c}"`).join("\n")}
+
+Output the complete corrected draft, then a single HTML comment at the very end: <!-- REMOVED: [one line per claim, confirming it was deleted] -->`;
+          const omitResponse = await callOpenRouter(omitPrompt, `DOCUMENT:\n\n${retryMarkdown}`);
+          const omittedMarkdown = omitResponse.replace(/<!--\s*REMOVED:[\s\S]*?-->/i, "").trim();
+
+          // Deterministic check, no LLM judgment needed here: did the
+          // flagged claim text actually disappear? Pure deletion is a
+          // much easier thing to verify mechanically than a genuine fix
+          // was to verify semantically.
+          const normalize = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
+          const stillPresent = quotedClaims.filter((c) => normalize(omittedMarkdown).includes(normalize(c).slice(0, 60)));
+
+          if (stillPresent.length === 0) {
+            markdown = omittedMarkdown;
+            console.log(`Removed ${quotedClaims.length} unverifiable claim(s) rather than blocking or fabricating a fix: ${quotedClaims.join(" | ")}`);
+          } else {
+            console.log(`Even direct deletion didn't fully remove the flagged claim(s), blocking: ${stillPresent.join(" | ")}`);
+            await alert(
+              `Value-topic pipeline: could not even remove the flagged claim(s) directly, blocking publish, this suggests something more than topic-thinness. Topic: id ${topic.id}, "${topic.keyword}". Claims: ${stillPresent.join(" | ")}`
+            );
+            process.exit(1);
+          }
         }
       } catch (err) {
-        console.log(`Retry or re-verification call failed (${err.message}), blocking publish rather than guessing whether the original issues were real.`);
+        console.log(`Retry, re-verification, or omission call failed (${err.message}), blocking publish rather than guessing.`);
         await alert(
-          `Value-topic pipeline: verification retry failed to complete, blocking publish. Topic: id ${topic.id}, "${topic.keyword}". Error: ${err.message}`
+          `Value-topic pipeline: verification retry/omission pipeline failed to complete, blocking publish. Topic: id ${topic.id}, "${topic.keyword}". Error: ${err.message}`
         );
         process.exit(1);
       }
