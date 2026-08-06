@@ -1,11 +1,11 @@
 // scripts/check-search-console.js
 //
 // Standalone, read-only check: fetches Search Console data (query + page
-// performance) for two windows, last 7 days and last 28 days, and prints
-// both to the log. Fetching both in the same run is required for the
-// Rising-query check in the blog drafting playbook (Part 10), which flags
-// a query when its 7-day impressions are a disproportionate share of its
-// 28-day total, that comparison needs both windows at once.
+// performance) for two windows, last 7 days and last 28 days, computes
+// which queries are "Rising" per the blog drafting playbook's Part 10
+// definition (7-day impressions are a disproportionate share of the
+// 28-day total, or the query wasn't present in the 28-day pull at all),
+// and prints Rising queries first, followed by both full windows.
 //
 // This is NOT wired into the publish pipeline and does not touch Sanity,
 // OpenRouter, or anything else. Purely for seeing real numbers before
@@ -42,7 +42,7 @@ function getWindow(daysBack) {
   return { startDate: formatDate(start), endDate: formatDate(end) };
 }
 
-async function fetchAndPrint(siteUrl, label, daysBack) {
+async function fetchWindow(siteUrl, label, daysBack) {
   const { startDate, endDate } = getWindow(daysBack);
   console.log(`\nFetching Search Console data for ${siteUrl}, ${label} (${startDate} to ${endDate})...`);
 
@@ -56,12 +56,16 @@ async function fetchAndPrint(siteUrl, label, daysBack) {
 
   if (!rows.length) {
     console.log(
-      `No rows returned. Either there's genuinely no data in this window yet, or GSC_SITE_URL doesn't exactly match the verified property. Check the property selector inside Search Console itself: a domain property needs "sc-domain:reslink.org", a URL-prefix property needs the full "https://reslink.org/" with trailing slash.`
+      `No rows returned for ${label}. Either there's genuinely no data in this window yet, or GSC_SITE_URL doesn't exactly match the verified property. Check the property selector inside Search Console itself: a domain property needs "sc-domain:reslink.org", a URL-prefix property needs the full "https://reslink.org/" with trailing slash.`
     );
-    return;
   }
 
-  console.log(`\n${rows.length} row(s), sorted as returned by the API:\n`);
+  return rows;
+}
+
+function printRows(rows, label) {
+  if (!rows.length) return;
+  console.log(`\n${rows.length} row(s) for ${label}, sorted as returned by the API:\n`);
   for (const row of rows) {
     const [query, page] = row.keys;
     console.log(
@@ -70,11 +74,91 @@ async function fetchAndPrint(siteUrl, label, daysBack) {
   }
 }
 
+// A query+page pair is unique within a single query+page dimension pull,
+// so this key is safe to use for matching a row across the two windows.
+function rowKey(row) {
+  const [query, page] = row.keys;
+  return `${query}\u0000${page}`;
+}
+
+// Playbook Part 10: a query is "Rising" if its 7-day impressions are a
+// disproportionate share of its 28-day total, or if it's new and doesn't
+// appear in the 28-day pull at all. Flat, even distribution over 28 days
+// would put 7/28 = 25% of impressions in the last week, so 0.50 here means
+// "at least double what flat distribution would predict." This threshold
+// is a starting guess, not calibrated against real data yet, adjust if it
+// turns out too noisy or too quiet in practice.
+const RISING_SHARE_THRESHOLD = 0.5;
+
+function findRisingQueries(sevenDayRows, twentyEightDayRows) {
+  const twentyEightDayMap = new Map();
+  for (const row of twentyEightDayRows) {
+    twentyEightDayMap.set(rowKey(row), row.impressions);
+  }
+
+  const rising = [];
+  for (const row of sevenDayRows) {
+    const [query, page] = row.keys;
+    const twentyEightDayImpressions = twentyEightDayMap.get(rowKey(row));
+
+    if (twentyEightDayImpressions === undefined) {
+      // Present in the 7-day pull but no matching row in the 28-day pull.
+      // The 7-day window sits inside the 28-day window so this should be
+      // rare, but can happen at API row-limit or tie-ordering boundaries.
+      // Flag it rather than drop it, per Part 10: small volume still counts.
+      rising.push({
+        query,
+        page,
+        sevenDay: row.impressions,
+        twentyEightDay: null,
+        reason: "not found in the 28-day pull",
+      });
+      continue;
+    }
+
+    const share = row.impressions / twentyEightDayImpressions;
+    if (share >= RISING_SHARE_THRESHOLD) {
+      rising.push({
+        query,
+        page,
+        sevenDay: row.impressions,
+        twentyEightDay: twentyEightDayImpressions,
+        reason: `${(share * 100).toFixed(0)}% of 28-day impressions landed in the last 7 days`,
+      });
+    }
+  }
+
+  rising.sort((a, b) => b.sevenDay - a.sevenDay);
+  return rising;
+}
+
+function printRising(rising) {
+  console.log(
+    `\n=== RISING QUERIES (7-day share >= ${(RISING_SHARE_THRESHOLD * 100).toFixed(0)}% of 28-day total, or new) ===\n`
+  );
+  if (!rising.length) {
+    console.log("None this cycle.\n");
+    return;
+  }
+  for (const r of rising) {
+    const twentyEightDayLabel = r.twentyEightDay === null ? "n/a" : r.twentyEightDay;
+    console.log(
+      `"${r.query}" -> ${r.page}\n  7-day impressions: ${r.sevenDay}, 28-day impressions: ${twentyEightDayLabel} (${r.reason})\n`
+    );
+  }
+}
+
 async function main() {
   const siteUrl = requireEnv("GSC_SITE_URL");
 
-  await fetchAndPrint(siteUrl, "last 7 days", 7);
-  await fetchAndPrint(siteUrl, "last 28 days", 28);
+  const sevenDayRows = await fetchWindow(siteUrl, "last 7 days", 7);
+  const twentyEightDayRows = await fetchWindow(siteUrl, "last 28 days", 28);
+
+  const rising = findRisingQueries(sevenDayRows, twentyEightDayRows);
+  printRising(rising);
+
+  printRows(sevenDayRows, "last 7 days");
+  printRows(twentyEightDayRows, "last 28 days");
 }
 
 main().catch((err) => {
