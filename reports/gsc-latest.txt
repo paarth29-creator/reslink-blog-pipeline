@@ -1,0 +1,79 @@
+Fetching Search Console data for sc-domain:reslink.org, 2026-07-27 to 2026-08-03...
+
+25 row(s), sorted as returned by the API:
+
+"reslink" -> https://www.reslink.org/
+  clicks: 154, impressions: 573, CTR: 26.9%, avg position: 3.2
+
+"reslink energy" -> https://www.reslink.org/
+  clicks: 32, impressions: 216, CTR: 14.8%, avg position: 1.1
+
+"pm kusum 2.0" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 27, impressions: 373, CTR: 7.2%, avg position: 3.3
+
+"pm kusum 2.0 launch date" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 21, impressions: 135, CTR: 15.6%, avg position: 1.3
+
+"reslink.in" -> https://www.reslink.org/
+  clicks: 12, impressions: 25, CTR: 48.0%, avg position: 1.0
+
+"kusum 2.0 launch date" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 9, impressions: 24, CTR: 37.5%, avg position: 1.1
+
+"pm kusum yojana 2.0 launch date" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 8, impressions: 29, CTR: 27.6%, avg position: 1.2
+
+"resilink" -> https://www.reslink.org/
+  clicks: 7, impressions: 46, CTR: 15.2%, avg position: 4.5
+
+"kusum 2.0 scheme launch date" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 6, impressions: 37, CTR: 16.2%, avg position: 1.2
+
+"pm kusum 2.0 scheme launch date" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 6, impressions: 26, CTR: 23.1%, avg position: 1.3
+
+"reslink technologies private limited" -> https://www.reslink.org/
+  clicks: 6, impressions: 12, CTR: 50.0%, avg position: 1.1
+
+"kusum 2.0" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 5, impressions: 86, CTR: 5.8%, avg position: 3.9
+
+"reslink login" -> https://www.reslink.org/
+  clicks: 5, impressions: 43, CTR: 11.6%, avg position: 3.2
+
+"when will pm kusum 2.0 launch" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 5, impressions: 25, CTR: 20.0%, avg position: 1.2
+
+"how to start solar epc business" -> https://www.reslink.org/blogs/how-to-start-a-solar-epc-business-in-india-2026/
+  clicks: 3, impressions: 7, CTR: 42.9%, avg position: 2.0
+
+"non dcr solar panel news" -> https://www.reslink.org/blogs/non-dcr-solar-panels-after-june-2026-what-s-actually-banned-what-s-still-allowed/
+  clicks: 3, impressions: 48, CTR: 6.3%, avg position: 1.6
+
+"pm kusum yojana 2.0" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 3, impressions: 9, CTR: 33.3%, avg position: 7.2
+
+"pmkusum 2.0" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 3, impressions: 23, CTR: 13.0%, avg position: 1.7
+
+"raslink" -> https://www.reslink.org/
+  clicks: 3, impressions: 5, CTR: 60.0%, avg position: 4.0
+
+"reslink login" -> https://www.reslink.org/proposal/
+  clicks: 3, impressions: 26, CTR: 11.5%, avg position: 3.2
+
+"eskom solar registration deadline" -> https://www.reslink.org/blogs/the-sseg-deadline-is-september-2026-act-now-or-pay-the-fine/
+  clicks: 2, impressions: 1568, CTR: 0.1%, avg position: 11.5
+
+"non dcr solar panel banned in india" -> https://www.reslink.org/blogs/non-dcr-solar-panels-after-june-2026-what-s-actually-banned-what-s-still-allowed/
+  clicks: 2, impressions: 23, CTR: 8.7%, avg position: 1.3
+
+"non dcr solar panel extension" -> https://www.reslink.org/blogs/non-dcr-solar-panels-after-june-2026-what-s-actually-banned-what-s-still-allowed/
+  clicks: 2, impressions: 15, CTR: 13.3%, avg position: 1.3
+
+"non dcr solar panel net metering" -> https://www.reslink.org/blogs/non-dcr-solar-panels-after-june-2026-what-s-actually-banned-what-s-still-allowed/
+  clicks: 2, impressions: 3, CTR: 66.7%, avg position: 1.0
+
+"pm kusum 2" -> https://www.reslink.org/blogs/pm-kusum-2-0-is-coming-india-s-rs-50-000-crore-agricultural-solar-push/
+  clicks: 2, impressions: 22, CTR: 9.1%, avg position: 3.9
+
