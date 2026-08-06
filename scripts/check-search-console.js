@@ -1,17 +1,21 @@
 // scripts/check-search-console.js
 //
-// Standalone, read-only check: fetches the last week of Search Console
-// data (query + page performance) and prints it to the log. This is NOT
-// wired into the publish pipeline and does not touch Sanity, OpenRouter,
-// or anything else. Purely for seeing real numbers before deciding what
-// the self-analysis / feedback loop phase should actually do with them,
-// see next_phase_focus in the project handoff notes.
+// Standalone, read-only check: fetches Search Console data (query + page
+// performance) for two windows, last 7 days and last 28 days, and prints
+// both to the log. Fetching both in the same run is required for the
+// Rising-query check in the blog drafting playbook (Part 10), which flags
+// a query when its 7-day impressions are a disproportionate share of its
+// 28-day total, that comparison needs both windows at once.
+//
+// This is NOT wired into the publish pipeline and does not touch Sanity,
+// OpenRouter, or anything else. Purely for seeing real numbers before
+// deciding what the self-analysis / feedback loop phase should actually
+// do with them, see next_phase_focus in the project handoff notes.
 //
 // Run via the "Check Search Console" GitHub Action (manual trigger only),
 // or locally with: node --env-file=.env scripts/check-search-console.js
 // (local use requires GSC_SERVICE_ACCOUNT_KEY and GSC_SITE_URL in .env,
 // the JSON key must be on a single line if run locally).
-
 import { fetchSearchConsoleData } from "./context.js";
 
 function requireEnv(name) {
@@ -27,28 +31,27 @@ function formatDate(d) {
   return d.toISOString().slice(0, 10);
 }
 
-async function main() {
-  const siteUrl = requireEnv("GSC_SITE_URL");
-
-  // Search Console data typically lags 2-3 days behind real-time, so this
-  // window ends 3 days ago rather than today, to avoid an artificially
-  // thin tail from days that haven't fully settled yet.
+// Search Console data typically lags 2-3 days behind real-time, so every
+// window ends 3 days ago rather than today, to avoid an artificially thin
+// tail from days that haven't fully settled yet.
+function getWindow(daysBack) {
   const end = new Date();
   end.setDate(end.getDate() - 3);
   const start = new Date(end);
-  start.setDate(start.getDate() - 7);
+  start.setDate(start.getDate() - daysBack);
+  return { startDate: formatDate(start), endDate: formatDate(end) };
+}
 
-  const startDate = formatDate(start);
-  const endDate = formatDate(end);
-
-  console.log(`Fetching Search Console data for ${siteUrl}, ${startDate} to ${endDate}...`);
+async function fetchAndPrint(siteUrl, label, daysBack) {
+  const { startDate, endDate } = getWindow(daysBack);
+  console.log(`\nFetching Search Console data for ${siteUrl}, ${label} (${startDate} to ${endDate})...`);
 
   const rows = await fetchSearchConsoleData({
     siteUrl,
     startDate,
     endDate,
     dimensions: ["query", "page"],
-    rowLimit: 25,
+    rowLimit: 25000,
   });
 
   if (!rows.length) {
@@ -65,6 +68,13 @@ async function main() {
       `"${query}" -> ${page}\n  clicks: ${row.clicks}, impressions: ${row.impressions}, CTR: ${(row.ctr * 100).toFixed(1)}%, avg position: ${row.position.toFixed(1)}\n`
     );
   }
+}
+
+async function main() {
+  const siteUrl = requireEnv("GSC_SITE_URL");
+
+  await fetchAndPrint(siteUrl, "last 7 days", 7);
+  await fetchAndPrint(siteUrl, "last 28 days", 28);
 }
 
 main().catch((err) => {
